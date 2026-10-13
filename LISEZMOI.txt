@@ -1,0 +1,76 @@
+TFT STATS · application locale (EUW, Argent–Or)
+================================================
+
+Ce que fait l'appli
+- Collecte les parties classées TFT EUW via l'API officielle de Riot, calcule les
+  statistiques par compo et les affiche dans un tableau de bord et une petite fenêtre
+  (l'overlay) au-dessus du jeu.
+- Sources de données : l'API Riot et Data Dragon (ressource officielle de Riot), et rien
+  d'autre. Les sites tiers ne sont plus utilisés.
+
+Installation (une seule fois)
+1. Double-clique sur creer-raccourci.bat : un raccourci « TFT Stats » apparaît
+   sur le Bureau et dans le menu Démarrer.
+
+Utilisation
+- Double-clique sur « TFT Stats ». Une fenêtre s'ouvre (http://127.0.0.1:3777).
+- À l'ouverture, l'application collecte de nouvelles parties puis relance l'analyse,
+  toute seule. Ensuite elle recommence toutes les 30 minutes tant qu'elle tourne.
+- Bouton « Mettre à jour » : lance une collecte tout de suite. « Arrêter » : stoppe
+  proprement, rien n'est perdu.
+- Fermer la fenêtre ne coupe pas l'application : elle continue de mettre à jour
+  en arrière-plan. Re-double-clique sur le raccourci pour rouvrir la fenêtre.
+  Pour l'arrêter vraiment : onglet Réglages > « Quitter l'application ».
+
+Clé Riot (expire toutes les 24 h)
+- Quand la clé est périmée, un bandeau rouge s'affiche. Génère une nouvelle clé sur
+  developer.riotgames.com, puis colle-la dans l'onglet Réglages et enregistre.
+  Elle est rangée dans le fichier .env, sur ton PC uniquement.
+
+Onglets
+- Mes compos     : les compos qui marchent dans tes lobbys, avec noyau, objets,
+                   contestation, bascules et duels.
+- Lobby          : au début de chaque partie, ce que jouent les 7 autres joueurs
+                   et les carries contestés.
+- Synergies      : traits par palier et champions, effet de la contestation.
+- Augments       : noms et descriptions officiels en français (Data Dragon) et tes
+                   stats d'augments. Riot ne publie pas les statistiques d'augments
+                   de ce set : ajoute les tiens après chaque partie dans « Mes parties »
+                   (bouton + Ajouter). Si le client LoL est ouvert, l'appli essaie
+                   aussi de les lire.
+- Récap          : après chaque partie classée (client LoL ouvert), un récap
+                   s'affiche avec ce qui a marché, ce qui a coûté des places,
+                   et la saisie de tes 3 augments.
+- Mes parties    : tes résultats par compo (renseigne ton Riot ID dans Réglages).
+- Réglages       : clé, Riot ID, rangs collectés, volumes, intervalle,
+                   téléphone (même Wi-Fi, code PIN, si activé dans .env).
+
+Overlay
+- Petite fenêtre au-dessus du jeu, avec ta compo suivie (bouton « Suivre en partie »).
+  Jeu en « Fenêtré sans bordure ».
+- En haut : tier (S, A, B, C, calculé sur tes propres parties), nom, champions avec
+  étoiles et objets.
+- ▴/▾ réduit l'overlay à ce bandeau ou affiche les onglets
+  (Aperçu, Unités, Objets, Lobby).
+- ⇄ change de compo, ✕ ferme.
+- Style HUD sans barre de titre : glisse l'en-tête pour le déplacer
+  (à désactiver dans Réglages si besoin).
+- ◐ change la transparence (4 niveaux).
+
+Fichiers
+- TFT Stats.vbs            lance l'application sans fenêtre noire
+- TFT Stats (fond).vbs     même chose sans ouvrir la fenêtre (démarrage de Windows)
+- overlay-helper.ps1       pilote la fenêtre de l'overlay (premier plan, forme, déplacement)
+- TFT Stats (console).bat  même chose, avec le journal visible (en cas de souci)
+- collecter.bat / analyser.bat  l'ancienne méthode, toujours utilisable
+- .env                     ta clé et tes réglages (ne jamais partager)
+- data/parties.jsonl       toutes les parties collectées (elles s'accumulent)
+- data/stats.json          résultats de la dernière analyse
+- data/augments-fr.json    noms et descriptions des augments (Data Dragon, reconstruit si absent)
+- data/app.log             journal de l'application
+
+En cas de problème
+- « node » introuvable : réinstalle Node.js depuis nodejs.org puis redémarre le PC.
+- Rien ne s'ouvre : lance « TFT Stats (console).bat » pour lire le message d'erreur.
+- Augments vides ou sans noms : vérifie la connexion internet, supprime
+  data/augments-fr.json puis relance l'appli : le fichier est reconstruit depuis Data Dragon.

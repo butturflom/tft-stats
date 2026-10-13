@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="fr" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TFT Stats</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpolygon points='16,2 29,9.5 29,22.5 16,30 3,22.5 3,9.5' fill='%23e7b33e'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@600;700&family=Figtree:wght@400;500;600&family=JetBrains+Mono:wght@500&display=swap">
+<link rel="stylesheet" href="style.css">
+<script>try{var t=localStorage.getItem("tft-theme");if(t==="light"||t==="dark")document.documentElement.dataset.theme=t;}catch(e){}</script>
+</head>
+<body>
+<header class="top">
+  <div class="brand"><span class="hex" aria-hidden="true"></span><b>TFT Stats</b><span class="scope" id="scope"></span></div>
+  <div class="status" id="status" aria-live="polite"></div>
+  <div class="actions">
+    <button type="button" id="btn-theme" class="theme-btn" aria-label="Changer de thème" title="Mode clair / sombre"></button>
+    <button type="button" id="btn-maj" class="primary">Mettre à jour</button>
+    <button type="button" id="btn-stop" class="ghost" hidden>Arrêter</button>
+  </div>
+  <div class="progress" id="progress" hidden><span></span></div>
+</header>
+
+<div class="banner" id="banner" hidden></div>
+
+<nav class="tabs" role="tablist">
+  <button type="button" role="tab" data-tab="compos" aria-selected="true">Mes compos</button>
+  <button type="button" role="tab" data-tab="lobby" aria-selected="false">Lobby</button>
+  <button type="button" role="tab" data-tab="synergies" aria-selected="false">Synergies</button>
+  <button type="button" role="tab" data-tab="augments" aria-selected="false">Augments</button>
+  <button type="button" role="tab" data-tab="moi" aria-selected="false">Mes parties</button>
+  <button type="button" role="tab" data-tab="reglages" aria-selected="false">Réglages</button>
+</nav>
+
+<main class="wrap">
+  <section id="tab-compos"></section>
+  <section id="tab-lobby" hidden></section>
+  <section id="tab-overlay" hidden></section>
+  <section id="tab-synergies" hidden></section>
+  <section id="tab-augments" hidden></section>
+  <section id="tab-moi" hidden></section>
+  <section id="tab-reglages" hidden></section>
+</main>
+
+<datalist id="aug-dl"></datalist>
+<script src="app.js"></script>
+</body>
+</html>

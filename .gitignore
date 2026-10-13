@@ -1,0 +1,14 @@
+# Secrets : clé Riot et réglages personnels
+.env
+.env.*
+!.env.example
+
+# Données collectées et résultats d'analyse (ta bibliothèque de parties)
+data/
+
+# Dépendances et caches
+node_modules/
+__pycache__/
+
+# Journaux
+*.log
