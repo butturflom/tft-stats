@@ -418,7 +418,7 @@ server.listen(PORT, MOBILE ? '0.0.0.0' : LOCAL, async () => {
   const s = settingsView();
   // Ré-analyse si stats.json manque ou vient d'une ancienne version du script
   let fmt = 0; try { fmt = JSON.parse(fs.readFileSync(STATS, 'utf8')).format || 0; } catch {}
-  if (fmt < 7 && fs.existsSync(path.join(DATA, 'parties.jsonl'))) {
+  if (fmt < 8 && fs.existsSync(path.join(DATA, 'parties.jsonl'))) {
     state.running = true; await runAnalyse(); state.running = false; state.phase = 'idle'; broadcast();
   }
   const fresh = state.lastRun && Date.now() - new Date(state.lastRun).getTime() < 5 * 60000;

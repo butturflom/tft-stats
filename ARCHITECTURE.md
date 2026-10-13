@@ -25,7 +25,8 @@ Application locale pour Windows. Elle collecte les parties classées TFT (EUW) v
 | `app.mjs` | Serveur HTTP, orchestrateur (cycles de collecte, minuteur auto), overlay, accès téléphone (PIN) | `.env`, `data/stats.json`, `data/app-etat.json` | `data/app-etat.json`, `data/app.log`, `data/sessions.json` |
 | `lib.mjs` | Lecture de `.env`, `Limiter`, client `Riot`, noms et augments (Data Dragon) | `.env`, caches | `data/noms.json`, `data/augments-fr.json` |
 | `collecter.mjs` | Choisit les joueurs, récupère leurs parties, compacte, historise le rang | API Riot | `data/parties.jsonl`, `data/rang.jsonl`, `data/collecte.lock` |
-| `analyser.mjs` | Filtre patch et set, calcule compos, synergies, objets, contestation, rang, tes parties | `parties.jsonl`, `rang.jsonl`, `noms.json`, `augments-fr.json` | `data/stats.json` (format 7) |
+| `analyser.mjs` | Filtre patch et set, calcule compos, synergies, objets, contestation, rang, tes parties ; bloque la publication si le contrôle échoue | `parties.jsonl`, `rang.jsonl`, `noms.json`, `augments-fr.json`, `app-etat.json` | `data/stats.json` (format 8), `data/qualite.json` |
+| `valider.mjs` | Contrôle chaque partie (schéma, places, doublons, joueur marqué) et le contrôle global de place moyenne (4,5) | parties brutes | rien : fonctions appelées par `analyser.mjs` |
 | `lcu.mjs` | Lit le client LoL local (lockfile) : partie en cours, augments, lobby | client LoL (local) | `data/augments-lobby.json`, `data/mes-augments.json`, `data/client-partie.json` |
 | `scout.mjs` | Repère les autres joueurs d'une partie (API spectateur) | API Riot | `data/lobby.json`, ajoute à `parties.jsonl` |
 | `overlay-helper.ps1` | Pilote la fenêtre de l'overlay | commandes sur l'entrée standard | |
@@ -80,11 +81,13 @@ API Riot (europe / euw1)            Client LoL local (lockfile)        Data Drag
 - `seed` : rang de la division d'où vient le joueur **au moment de la collecte** (voir §5, point 2).
 - **Aucun PUUID n'est conservé**, sauf l'indicateur `me`.
 
-### `stats.json` (format 7)
+### `stats.json` (format 8)
 
-Champs de premier niveau : `format`, `patch`, `set`, `parties`, `plateaux`, `controleMoyenne`, `periode`, `rangs`, `sansCarry`, `ddragon` (version des données Data Dragon utilisée), `contestationGlobale`, `compos`, `traits`, `unites`, `moi`, `unitsIndex`, `itemsIndex`, `rang`, `augmentsLobby`.
+Champs de premier niveau : `format`, `patch`, `set`, `parties`, `plateaux`, `controleMoyenne`, `periode`, `rangs`, `sansCarry`, `ddragon` (version des données Data Dragon utilisée), `contestationGlobale`, `compos`, `traits`, `unites`, `moi`, `unitsIndex`, `itemsIndex`, `rang`, `augmentsLobby`, `qualite`.
 
 Format 7 (13/10/2026) : `metatft`, `recettes`, `deroule`, `augmentsConseilles`, les codes d'équipe et `setCode` ont été retirés. Le fichier ne contient plus aucune donnée tierce. `app.mjs` relance l'analyse si le format lu est inférieur à 7.
+
+Format 8 (13/10/2026) : section `qualite`, avec le statut (`ok` ou `bloque`), le contrôle de place moyenne, le nombre de parties lues, écartées (schéma, doublons) et retenues, les motifs de rejet, quelques exemples, les seuils et la date de dernière collecte. Si un contrôle échoue, `stats.json` n'est pas réécrit : l'ancien reste affiché, et le motif est écrit dans `data/qualite.json` et affiché dans la bannière de l'application.
 
 Incrémenter `format` à chaque changement de structure.
 
@@ -94,13 +97,13 @@ Incrémenter `format` à chaque changement de structure.
 2. **Rang de référence.** `seed` est le rang du joueur au moment de la collecte, pas au moment de la partie. Une partie vieille de 10 jours peut venir d'un joueur qui a changé de rang depuis. Le filtre par rang est donc approximatif. `rang.jsonl` ne contient que ton propre rang, avec peu de points.
 3. **Déduplication.** À chaque collecte, tout `parties.jsonl` (≈ 26 Mo, ≈ 4 900 lignes) est relu en mémoire. Cela tiendra un temps, pas à 50 000 parties.
 4. **Écritures concurrentes.** L'enrichissement de tes parties réécrit `parties.jsonl` (tmp puis rename) pendant que `scout.mjs` peut y ajouter des lignes (`appendFileSync`). Une ligne ajoutée entre la lecture et le renommage est perdue. Le verrou `collecte.lock` ne protège pas `scout.mjs`.
-5. **Pas de validation avant affichage.** `compact()` garde seulement les parties classées à 8 joueurs. Le contrôle « place moyenne = 4,5 » est affiché dans la console mais ne bloque rien. Les seuils existent (`MIN_N = 30`, intervalle de Wilson, a priori bayésien), mais rien ne vérifie `stats.json` avant l'affichage.
+5. **Validation avant affichage (phase 1).** `valider.mjs` vérifie chaque partie avant l'analyse (schéma, places uniques de 1 à 8, 8 joueurs, doublons, un seul joueur marqué comme toi) et écarte les parties invalides en gardant leur motif. Le contrôle « place moyenne = 4,5 » bloque la publication s'il échoue. Seul le schéma est vérifié : les valeurs plausibles (or, dégâts) ne le sont pas.
 6. **Repérage du lobby.** Le journal du 13/10 indique que la clé n'a pas accès à l'API spectateur. Cette fonction dépend de cet accès, à vérifier pour la clé personnelle.
 7. **Mode téléphone** (`MOBILE=1`, désactivé par défaut). Le serveur parle HTTP en clair sur le réseau local. Le PIN fait 4 à 8 chiffres et le cookie n'a pas l'attribut `Secure`. Acceptable en usage domestique, à documenter, à ne jamais exposer hors du réseau local.
 8. **Périmètre des données.** Riot API et Data Dragon sont les seules sources. Le code ne contient plus aucun appel à un site tiers (recherche faite le 13/10 dans tout le dépôt). Les fonctions qui en dépendaient ont été retirées (§8).
 9. **Dépendance à Data Dragon.** Noms, icônes et augments viennent de `ddragon.leagueoflegends.com`, au premier lancement ou quand le cache manque. Sans accès, les augments restent vides : `/api/augments` renvoie alors `{ version: null, augments: {} }`, sans erreur.
 10. **Valeurs en dur.** Le lockfile LoL n'est cherché que dans `C:\` et `D:\` (`lcu.mjs`). L'interface et les messages sont uniquement en français.
-11. **Tests.** `npm test` couvre seulement l'hygiène du dépôt et `compact()`. Ni l'analyse ni l'interface ne sont testées automatiquement. Un contrôle navigateur ponctuel (onglets, overlay, routes API) a été fait le 13/10, hors dépôt : aucune erreur JavaScript. Ce contrôle tournait sans accès à Data Dragon.
+11. **Tests.** `npm test` couvre l'hygiène du dépôt, `compact()`, les contrôles de `valider.mjs` et l'analyse de bout en bout sur des données synthétiques. L'interface n'est pas testée automatiquement. Un contrôle navigateur ponctuel (onglets, overlay, routes API) a été fait le 13/10, hors dépôt : aucune erreur JavaScript. Ce contrôle tournait sans accès à Data Dragon.
 12. **Métadonnées du dépôt.** Dépôt git créé en phase 0, avec `package.json`, `LICENSE`, `README.md` et `.env.example`. Remote GitHub configuré (`origin`).
 
 ## 6. Trajectoire proposée
@@ -116,7 +119,9 @@ Incrémenter `format` à chaque changement de structure.
 - Pas encore fait : tests de l'analyse et de l'interface (phase 1).
 - Mention « non affiliée ni approuvée par Riot Games » : présente dans le README, en anglais, avec le texte type de Riot.
 
-**Phase 1 : contrôle qualité avant affichage**
+**Phase 1 : contrôle qualité avant affichage** — **faite le 13/10/2026**
+- Calibrage sur tes données réelles : 5 100 parties lues, 2 écartées (horodatage en texte et version « TFT Unreal Version »), 0 doublon. Les unités à 4 étoiles sont valides (set 18). Résultat : 4 941 parties retenues, place moyenne = 4,5.
+- Compos affichées seulement au-dessus de `MIN_N` (30), avec la marge ±, et bilan de qualité dans l'onglet « Mes compos ».
 - Nouveau module `valider.mjs`, appelé par `analyser.mjs` avant d'écrire `stats.json`.
 - Règles : schéma d'une partie (champs, types, `p` entre 1 et 8, 8 plateaux, placements uniques), absence de doublon d'ID, set et patch attendus, contrôle de moyenne = 4,5. Ce contrôle doit bloquer en cas d'écart, pas seulement s'afficher.
 - `stats.json` gagne une section `qualite` : parties rejetées avec leur raison, date de dernière collecte, seuils appliqués.

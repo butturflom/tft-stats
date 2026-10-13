@@ -169,14 +169,27 @@ function compCard(c, i) {
     </details>
   </article>`;
 }
+// Bilan de qualité des données (section qualite de stats.json).
+function qualiteLine() {
+  const q = STATS && STATS.qualite;
+  if (!q) return '';
+  const p = q.parties;
+  const ecartees = p.invalides ? ` · ${int(p.invalides)} écartée${p.invalides > 1 ? 's' : ''}` : '';
+  const doublons = p.doublons ? ` · ${int(p.doublons)} doublon${p.doublons > 1 ? 's' : ''}` : '';
+  return `<p><small class="muted">${q.statut === 'ok' ? '✓' : '⚠'} Données : ${int(p.retenues)} parties retenues sur ${int(p.lues)} lues${ecartees}${doublons} · place moyenne ${f2(q.controle.moyenne)} (attendu ${f2(q.controle.attendu)}) · seuil ${q.seuils.minN} plateaux</small></p>`;
+}
+
 function renderCompos() {
   const el = $('#tab-compos');
   if (!STATS) { el.innerHTML = `<h2>Mes compos</h2>${noData()}`; return; }
   const q = norm(UI.q);
   const key = { top1Adj: c => -c.top1Adj, top4: c => -c.top4, avgAdj: c => c.avgAdj, n: c => -c.n }[UI.sort];
-  const list = STATS.compos.filter(c => c.n >= UI.minN && (!q || norm(c.nom + ' ' + c.noyau.map(u => u.nom).join(' ')).includes(q))).sort((a, b) => key(a) - key(b));
+  // Jamais de compo sous le seuil MIN_N de l'analyse (30 plateaux), même si le filtre est plus bas
+  const minN = Math.max(UI.minN, ((STATS.qualite && STATS.qualite.seuils) || {}).minN || 30);
+  const list = STATS.compos.filter(c => c.n >= minN && (!q || norm(c.nom + ' ' + c.noyau.map(u => u.nom).join(' ')).includes(q))).sort((a, b) => key(a) - key(b));
   el.innerHTML = `<h2>Mes compos · Argent–Or EUW</h2>
     <p class="lead">Calculé sur tes propres parties collectées via l'API Riot. Le taux de 1re place est corrigé pour les compos peu jouées : il faut beaucoup de parties pour qu'un chiffre spectaculaire soit crédible. La marge (±) indique la précision de la place moyenne.</p>
+    ${qualiteLine()}
     ${factsLine()}
     <div class="toolbar">
       <input type="search" id="q" placeholder="Chercher une compo ou un champion" value="${esc(UI.q)}" aria-label="Rechercher">

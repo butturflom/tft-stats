@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { DATA, loadEnv, loadNames, prettyId } from './lib.mjs';
+import { validerParties, controleMoyenne } from './valider.mjs';
 
 const MIN_N = 30;          // taille minimale pour lister une compo
 const K_AVG = 40;          // poids du « retour à la moyenne » sur la place moyenne
@@ -32,17 +33,36 @@ function summarize(list) {
   };
 }
 
+// Écrit le bilan de qualité (data/qualite.json), y compris quand l'analyse est bloquée.
+function ecrireQualite(q) {
+  try { fs.writeFileSync(path.join(DATA, 'qualite.json'), JSON.stringify(q, null, 1)); } catch {}
+}
+// Bloque la publication : stats.json précédent conservé, motif gardé dans qualite.json.
+function bloquer(raison, q) {
+  ecrireQualite({ ...q, statut: 'bloque', raison, date: new Date().toISOString() });
+  throw new Error(raison);
+}
+
 export async function analyse({ tous = false, quiet = false } = {}) {
   const say = quiet ? () => {} : console.log;
   const file = path.join(DATA, 'parties.jsonl');
   if (!fs.existsSync(file)) throw new Error('aucune partie collectée, lance d\'abord collecter.bat');
   let recs = [];
+  let illisibles = 0;
   for (const l of fs.readFileSync(file, 'utf8').split('\n')) {
     if (!l.trim()) continue;
-    try { recs.push(JSON.parse(l)); } catch {}
+    try { recs.push(JSON.parse(l)); } catch { illisibles++; }
   }
-  { const seenIds = new Set(); recs = recs.filter(r => !seenIds.has(r.id) && seenIds.add(r.id)); }
-  if (!recs.length) throw new Error('le fichier de parties est vide');
+  // Contrôle de chaque partie (doublons, schéma) : les parties invalides sont écartées et comptées.
+  const verif = validerParties(recs);
+  recs = verif.acceptees;
+  const qualiteBase = {
+    parties: { lues: verif.lues, illisibles, doublons: verif.doublons, invalides: verif.rejetees.length, retenues: 0 },
+    motifs: verif.parRaison,
+    exemples: verif.rejetees.slice(0, 20),
+    seuils: { minN: MIN_N, kAvg: K_AVG, prior: PRIOR },
+  };
+  if (!recs.length) bloquer('aucune partie valide dans le fichier de parties', qualiteBase);
 
   // On garde le patch le plus récent, et le set le plus fréquent de ce patch
   let latestT = 0, patch = '?';
@@ -365,10 +385,25 @@ export async function analyse({ tous = false, quiet = false } = {}) {
   }
   const contestationGlobale = contAll.map((l, i) => ({ autres: i === 2 ? '2+' : String(i), ...(l.length ? summarize(l) : { n: 0 }) }));
 
+  // Contrôle global : place moyenne = 4,5 sur les plateaux retenus. S'il échoue, rien n'est publié.
+  const ctrl = controleMoyenne(boards.map(b => b.p));
+  const qualite = {
+    statut: ctrl.ok ? 'ok' : 'bloque',
+    controle: ctrl,
+    collecte: { derniere: readJ('app-etat.json', {}).lastRun || null },
+    seuils: qualiteBase.seuils,
+    parties: { ...qualiteBase.parties, retenues: recs.length, horsFiltre: verif.acceptees.length - recs.length },
+    motifs: verif.parRaison,
+    exemples: verif.rejetees.slice(0, 20),
+    genere: new Date().toISOString(),
+  };
+  if (!ctrl.ok) bloquer('contrôle de qualité en échec : place moyenne ' + (ctrl.moyenne ?? 'absente') + ', attendu ' + ctrl.attendu, qualite);
+  ecrireQualite(qualite);
+
   const dates = recs.map(r => r.t);
   const out = {
     genere: new Date().toISOString(),
-    format: 7, patch, set,
+    format: 8, patch, set,
     parties: recs.length, plateaux: total,
     controleMoyenne: r2(boards.reduce((s, b) => s + b.p, 0) / total),
     periode: { debut: new Date(Math.min(...dates)).toISOString(), fin: new Date(Math.max(...dates)).toISOString() },
@@ -379,11 +414,13 @@ export async function analyse({ tous = false, quiet = false } = {}) {
     compos: comps, traits, unites, moi,
     unitsIndex, itemsIndex, rang,
     augmentsLobby: { plateaux: withA(boards).length, liste: augLobby },
+    qualite,
   };
   fs.writeFileSync(path.join(DATA, 'stats.json'), JSON.stringify(out, null, 1));
 
   // Résumé à l'écran
   say(`\nAnalyse : ${recs.length} parties · ${total} plateaux · patch ${patch} · set ${set}`);
+  say(`Qualité : ${qualite.parties.retenues} parties retenues sur ${qualite.parties.lues} lues · ${qualite.parties.invalides} écartées · ${qualite.parties.doublons} doublons`);
   say(`Contrôle : place moyenne générale = ${out.controleMoyenne} (doit valoir 4.5)`);
   say(`\nMeilleures compos pour viser la 1re place (au moins ${MIN_N} plateaux) :`);
   say('  1re place (corrigée) · top 4 · place moy. · plateaux · compo');

@@ -13,6 +13,6 @@
     "collecte": "node collecter.mjs",
     "analyse": "node analyser.mjs",
     "lint": "node scripts/verifier-syntaxe.mjs",
-    "test": "node --test tests/depot.test.mjs tests/compact.test.mjs"
+    "test": "node --test tests/depot.test.mjs tests/compact.test.mjs tests/valider.test.mjs tests/analyse.test.mjs"
   }
 }

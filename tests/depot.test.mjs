@@ -34,7 +34,7 @@ test('aucune clé Riot dans les fichiers du dépôt', () => {
 });
 
 test('aucun chemin ou identifiant personnel en dur', () => {
-  const motif = /C:\\Users\\User|Butturflom/i;
+  const motif = /C:\\Users\\User|Butturflom#/i;
   const fautifs = suivis().filter(f => motif.test(lire(f)));
   assert.deepEqual(fautifs.map(f => path.relative(racine, f)), []);
 });

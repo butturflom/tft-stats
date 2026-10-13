@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const ROOT = path.dirname(fileURLToPath(import.meta.url));
-export const DATA = path.join(ROOT, 'data');
+export const DATA = process.env.TFT_DATA || path.join(ROOT, 'data');
 fs.mkdirSync(DATA, { recursive: true });
 
 export const sleep = ms => new Promise(r => setTimeout(r, ms));
