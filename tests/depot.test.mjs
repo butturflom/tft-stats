@@ -61,7 +61,7 @@ test('aucune dépendance npm d\'exécution : Electron, facultatif, est une dépe
   assert.ok(fs.existsSync(path.join(racine, pkg.main)), 'le point d\'entrée Electron existe');
 });
 
-test('le README contient la mention légale Riot', () => {
-  const readme = lire(path.join(racine, 'README.md'));
-  assert.match(readme, /isn't endorsed by Riot Games/);
+test('le README et le pied de page de l\'interface contiennent la mention légale Riot', () => {
+  for (const f of ['README.md', 'public/index.html']) assert.match(lire(path.join(racine, f)), /isn't endorsed by Riot Games/, f);
+  assert.match(lire(path.join(racine, 'public', 'index.html')), /<footer class="pied">/);
 });
