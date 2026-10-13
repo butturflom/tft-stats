@@ -12,6 +12,7 @@ import { startLcu, lcuState, currentPuuid } from './lcu.mjs';
 import { collect, refreshRank, myPuuidFromEnv } from './collecter.mjs';
 import { analyse } from './analyser.mjs';
 import { scoutLobby, scoutState, readLobby } from './scout.mjs';
+import { ouvrir, nombreParties, etatFile, rangsCibles, getMeta } from './db.mjs';
 
 const PORT = 3777;
 const LOCAL = '127.0.0.1';
@@ -47,7 +48,8 @@ function settingsView() {
   return {
     keyPresent: /^RGAPI-[0-9a-f-]{36}$/i.test(env.RIOT_API_KEY || ''),
     riotId: env.RIOT_ID || '',
-    rangs: env.RANGS || 'SILVER:I,SILVER:II,SILVER:III,GOLD:IV,GOLD:III',
+    rangs: env.RANGS || 'TOUS',
+    budget: num(env.REQUETES_HEURE, 2700),
     parties: num(env.PARTIES_PAR_COLLECTE, 800),
     partiesAuto: num(env.PARTIES_AUTO, 200),
     autoMin: num(env.AUTO_MIN, 30),
@@ -78,7 +80,8 @@ const state = {
   lobbyVersion: readLobby()?.t || null,
 };
 const saveState = () => { try { fs.writeFileSync(STATE_FILE, JSON.stringify({ lastRun: state.lastRun, lastResult: state.lastResult, suivie: state.suivie })); } catch {} };
-const publicState = () => ({ ...state, settings: settingsView(), client: lcuState, scout: scoutState });
+const baseInfo = () => { try { const db = ouvrir(); return { parties: nombreParties(db), file: etatFile(db) }; } catch (e) { return { erreur: e.message }; } };
+const publicState = () => ({ ...state, settings: settingsView(), client: lcuState, scout: scoutState, base: baseInfo() });
 
 const clients = new Set(), overlayClients = new Set();
 let lastBroadcast = 0, pending = null;
@@ -318,10 +321,12 @@ const server = http.createServer(async (req, res) => {
       }
       if (typeof b.rangs === 'string') {
         const r = b.rangs.toUpperCase().replace(/\s+/g, '');
-        if (!/^([A-Z]+:(I|II|III|IV))(,[A-Z]+:(I|II|III|IV))*$/.test(r)) return json(res, 400, { erreur: 'Choisis au moins un rang' });
-        ch.RANGS = r;
+        if (r !== 'TOUS' && !/^([A-Z]+:(I|II|III|IV))(,[A-Z]+:(I|II|III|IV))*$/.test(r)) return json(res, 400, { erreur: 'Choisis au moins un rang' });
+        const choisis = rangsCibles(r);
+        if (!choisis.length) return json(res, 400, { erreur: 'Choisis au moins un rang' });
+        ch.RANGS = choisis.length === rangsCibles('TOUS').length ? 'TOUS' : choisis.map(x => x.join(':')).join(',');
       }
-      for (const [k, env, min, max] of [['parties', 'PARTIES_PAR_COLLECTE', 50, 5000], ['partiesAuto', 'PARTIES_AUTO', 20, 2000], ['autoMin', 'AUTO_MIN', 0, 600], ['jours', 'JOURS', 1, 30]]) {
+      for (const [k, env, min, max] of [['parties', 'PARTIES_PAR_COLLECTE', 50, 5000], ['partiesAuto', 'PARTIES_AUTO', 20, 2000], ['autoMin', 'AUTO_MIN', 0, 600], ['jours', 'JOURS', 1, 30], ['budget', 'REQUETES_HEURE', 0, 100000]]) {
         if (b[k] !== undefined) { const v = Math.round(Number(b[k])); if (isNaN(v) || v < min || v > max) return json(res, 400, { erreur: `Valeur hors limites pour ${k}` }); ch[env] = v; }
       }
       for (const [k, env] of [['autoStart', 'AUTO_START'], ['recapFenetre', 'RECAP_FENETRE'], ['overlayAuto', 'OVERLAY_AUTO'], ['overlayForme', 'OVERLAY_FORME'], ['lobbyAuto', 'LOBBY_AUTO'], ['mobile', 'MOBILE']]) {
@@ -418,12 +423,17 @@ server.listen(PORT, MOBILE ? '0.0.0.0' : LOCAL, async () => {
   const s = settingsView();
   // Ré-analyse si stats.json manque ou vient d'une ancienne version du script
   let fmt = 0; try { fmt = JSON.parse(fs.readFileSync(STATS, 'utf8')).format || 0; } catch {}
-  if (fmt < 8 && fs.existsSync(path.join(DATA, 'parties.jsonl'))) {
+  let enStock = 0; try { enStock = nombreParties(ouvrir()); } catch (e) { log('Base de données : ' + e.message); }
+  try {
+    const imp = getMeta(ouvrir(), 'import');
+    if (imp && Date.now() - Date.parse(imp.date) < 120000) log(`Base SQLite créée : ${imp.ajoutees} parties importées (${imp.doublons} doublons, ${imp.illisibles} lignes illisibles écartées). Ancien fichier gardé : data/${imp.renomme || 'parties.jsonl'}`);
+  } catch {}
+  if (fmt < 9 && enStock > 0) {
     state.running = true; await runAnalyse(); state.running = false; state.phase = 'idle'; broadcast();
   }
   const fresh = state.lastRun && Date.now() - new Date(state.lastRun).getTime() < 5 * 60000;
   if (s.autoStart && s.keyPresent && !fresh) {
-    const first = !fs.existsSync(path.join(DATA, 'parties.jsonl'));
+    const first = enStock === 0;
     runCycle(first ? s.parties : s.partiesAuto, 'lancement');
   } else {
     scheduleAuto(); broadcast();

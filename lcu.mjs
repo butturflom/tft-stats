@@ -6,13 +6,13 @@ import path from 'node:path';
 import https from 'node:https';
 import { execFile } from 'node:child_process';
 import { DATA } from './lib.mjs';
-import { compact } from './collecter.mjs';
+import { compact, joueursDe } from './collecter.mjs';
+import { ouvrir, ajouterPartie, partieConnue } from './db.mjs';
 
 const LOBBY = path.join(DATA, 'augments-lobby.json');   // { matchId: { placement: [augments] } }
 const MINE = path.join(DATA, 'mes-augments.json');      // { matchId: { ids: [augments], source } }
 const SAMPLE = path.join(DATA, 'client-exemple.json');
 const SESSION = path.join(DATA, 'client-partie.json');  // une partie en cours, pour vérifier ce que le client fournit  // une partie brute, pour vérifier ce que le client fournit
-const PARTIES = path.join(DATA, 'parties.jsonl');
 const LOCKFILES = ['C:\\Riot Games\\League of Legends\\lockfile', 'D:\\Riot Games\\League of Legends\\lockfile'];
 
 export const lcuState = { lobby: 0, connecte: false, vu: null, parties: 0, avecAugments: 0, note: 'Pas encore vérifié' };
@@ -85,13 +85,6 @@ function findGames(root) {
   return games;
 }
 
-// Identifiants des parties déjà enregistrées (lecture rapide, sans tout analyser)
-function knownIds() {
-  const ids = new Set();
-  try { for (const l of fs.readFileSync(PARTIES, 'utf8').split('\n')) { const m = l.slice(0, 60).match(/"id":"([^"]+)"/); if (m) ids.add(m[1]); } } catch {}
-  return ids;
-}
-
 async function poll(onNew, onGame) {
   const c = fromLockfile() || await fromProcess();
   if (!c) { lcuState.connecte = false; lcuState.note = 'Client LoL fermé'; return; }
@@ -106,13 +99,13 @@ async function poll(onNew, onGame) {
     lcuState.parties = games.length;
     if (games[0] && !fs.existsSync(SAMPLE)) { try { fs.writeFileSync(SAMPLE, JSON.stringify(games[0].raw, null, 1)); } catch {} }
     // Nouvelles parties classées : ajoutées tout de suite, sans attendre la prochaine collecte
-    const known = knownIds(), fresh = [];
+    const db = ouvrir(), fresh = [];
     for (const g of games) {
-      if (!g.id || known.has(g.id) || !g.raw || !g.raw.json) continue;
-      const rec = compact({ metadata: { match_id: g.id }, info: g.raw.json }, 'MOI', puuid);
+      if (!g.id || !g.raw || !g.raw.json || partieConnue(db, g.id)) continue;
+      const m = { metadata: { match_id: g.id }, info: g.raw.json };
+      const rec = compact(m, 'MOI', puuid);
       if (!rec) continue;
-      fs.appendFileSync(PARTIES, JSON.stringify(rec) + '\n');
-      known.add(g.id); fresh.push(rec);
+      if (ajouterPartie(db, rec, joueursDe(m))) fresh.push(rec);
     }
     if (fresh.length) onGame(fresh.sort((a, b) => b.t - a.t)[0]);
     const lobby = readJ(LOBBY, {}), mine = readJ(MINE, {});

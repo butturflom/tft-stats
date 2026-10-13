@@ -1,18 +1,19 @@
 {
   "name": "tft-stats",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Personal Teamfight Tactics statistics from the Riot Games API: local dashboard and in-game overlay.",
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "engines": {
-    "node": ">=18"
+    "node": ">=22.13"
   },
   "scripts": {
     "start": "node app.mjs",
     "collecte": "node collecter.mjs",
     "analyse": "node analyser.mjs",
     "lint": "node scripts/verifier-syntaxe.mjs",
-    "test": "node --test tests/depot.test.mjs tests/compact.test.mjs tests/valider.test.mjs tests/analyse.test.mjs"
+    "test": "node --test tests/depot.test.mjs tests/compact.test.mjs tests/valider.test.mjs tests/analyse.test.mjs tests/db.test.mjs tests/collecte.test.mjs",
+    "export": "node scripts/exporter.mjs"
   }
 }

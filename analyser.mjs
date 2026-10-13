@@ -5,6 +5,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { DATA, loadEnv, loadNames, prettyId } from './lib.mjs';
 import { validerParties, controleMoyenne } from './valider.mjs';
+import { ouvrir, lireParties, rangsDesParties, getMeta, rangsCibles } from './db.mjs';
 
 const MIN_N = 30;          // taille minimale pour lister une compo
 const K_AVG = 40;          // poids du « retour à la moyenne » sur la place moyenne
@@ -45,12 +46,12 @@ function bloquer(raison, q) {
 
 export async function analyse({ tous = false, quiet = false } = {}) {
   const say = quiet ? () => {} : console.log;
-  const file = path.join(DATA, 'parties.jsonl');
-  if (!fs.existsSync(file)) throw new Error('aucune partie collectée, lance d\'abord collecter.bat');
+  const db = ouvrir();
+  const lignes = lireParties(db);
+  if (!lignes.length) throw new Error('aucune partie collectée, lance d\'abord collecter.bat');
   let recs = [];
   let illisibles = 0;
-  for (const l of fs.readFileSync(file, 'utf8').split('\n')) {
-    if (!l.trim()) continue;
+  for (const l of lignes) {
     try { recs.push(JSON.parse(l)); } catch { illisibles++; }
   }
   // Contrôle de chaque partie (doublons, schéma) : les parties invalides sont écartées et comptées.
@@ -61,6 +62,7 @@ export async function analyse({ tous = false, quiet = false } = {}) {
     motifs: verif.parRaison,
     exemples: verif.rejetees.slice(0, 20),
     seuils: { minN: MIN_N, kAvg: K_AVG, prior: PRIOR },
+    import: getMeta(db, 'import'),
   };
   if (!recs.length) bloquer('aucune partie valide dans le fichier de parties', qualiteBase);
 
@@ -75,6 +77,32 @@ export async function analyse({ tous = false, quiet = false } = {}) {
   for (const r of recs) sets[r.set] = (sets[r.set] || 0) + 1;
   const set = Number(Object.entries(sets).sort((a, b) => b[1] - a[1])[0][0]);
   recs = recs.filter(r => r.set === set);
+
+  // Rang de chaque partie au moment où elle a été jouée (relevés de rang des joueurs, voir db.mjs).
+  // À défaut, le rang de la division où le joueur a été trouvé (« seed », moins fiable : rang du jour de la collecte).
+  const rangsParties = rangsDesParties(db);
+  const SEED_RANG = /^(IRON|BRONZE|SILVER|GOLD|PLATINUM|EMERALD|DIAMOND|MASTER|GRANDMASTER|CHALLENGER) (I|II|III|IV)$/;
+  const couverture = { releve: 0, approx: 0, seed: 0, inconnu: 0 };
+  const rangDe = r => {
+    const x = rangsParties.get(r.id);
+    if (x) return { rang: x.rang, source: x.approx ? 'approx' : 'releve' };
+    if (SEED_RANG.test(r.seed || '')) return { rang: r.seed, source: 'seed' };
+    return { rang: null, source: 'inconnu' };
+  };
+  // Filtre par rang : les rangs choisis (RANGS, vide = tout le ladder). Une partie sans rang connu (les tiennes,
+  // celles du repérage de lobby) est gardée.
+  let rangsChoisis = null;
+  let rangsTxt = process.env.TFT_RANGS;
+  if (rangsTxt === undefined) { try { rangsTxt = loadEnv().RANGS; } catch {} }
+  if (String(rangsTxt || '').trim()) rangsChoisis = new Set(rangsCibles(rangsTxt).map(([t, d]) => `${t} ${d}`));
+  const avantRang = recs.length;
+  recs = recs.filter(r => {
+    const x = rangDe(r);
+    r.rg = x.rang;
+    couverture[x.source]++;
+    return !rangsChoisis || !x.rang || rangsChoisis.has(x.rang);
+  });
+  const horsRang = avantRang - recs.length;
   // Tes parties : tout le set, pas seulement la fenêtre de jours utilisée pour les autres joueurs
   const mineRecs = allRecs.filter(r => r.set === set && r.b.some(b => b.me));
 
@@ -392,7 +420,9 @@ export async function analyse({ tous = false, quiet = false } = {}) {
     controle: ctrl,
     collecte: { derniere: readJ('app-etat.json', {}).lastRun || null },
     seuils: qualiteBase.seuils,
-    parties: { ...qualiteBase.parties, retenues: recs.length, horsFiltre: verif.acceptees.length - recs.length },
+    parties: { ...qualiteBase.parties, retenues: recs.length, horsFiltre: verif.acceptees.length - recs.length, horsRang },
+    rangs: { ...couverture, filtre: rangsChoisis ? [...rangsChoisis] : 'tous', apresMaxJours: 3 },
+    import: qualiteBase.import,
     motifs: verif.parRaison,
     exemples: verif.rejetees.slice(0, 20),
     genere: new Date().toISOString(),
@@ -403,11 +433,11 @@ export async function analyse({ tous = false, quiet = false } = {}) {
   const dates = recs.map(r => r.t);
   const out = {
     genere: new Date().toISOString(),
-    format: 8, patch, set,
+    format: 9, patch, set,
     parties: recs.length, plateaux: total,
     controleMoyenne: r2(boards.reduce((s, b) => s + b.p, 0) / total),
     periode: { debut: new Date(Math.min(...dates)).toISOString(), fin: new Date(Math.max(...dates)).toISOString() },
-    rangs: Object.entries(recs.reduce((o, r) => (o[r.seed] = (o[r.seed] || 0) + 1, o), {})).map(([rang, n]) => ({ rang, n })),
+    rangs: Object.entries(recs.reduce((o, r) => { const k = r.rg || r.seed || 'inconnu'; o[k] = (o[k] || 0) + 1; return o; }, {})).map(([rang, n]) => ({ rang, n })).sort((a, b) => b.n - a.n),
     sansCarry: r3(boards.filter(b => !b.carry).length / total),
     ddragon: names.version || null,
     contestationGlobale,
@@ -420,7 +450,8 @@ export async function analyse({ tous = false, quiet = false } = {}) {
 
   // Résumé à l'écran
   say(`\nAnalyse : ${recs.length} parties · ${total} plateaux · patch ${patch} · set ${set}`);
-  say(`Qualité : ${qualite.parties.retenues} parties retenues sur ${qualite.parties.lues} lues · ${qualite.parties.invalides} écartées · ${qualite.parties.doublons} doublons`);
+  say(`Qualité : ${qualite.parties.retenues} parties retenues sur ${qualite.parties.lues} lues · ${qualite.parties.invalides} écartées · ${qualite.parties.doublons} doublons · ${horsRang} hors des rangs choisis`);
+  say(`Rang au moment de la partie : ${couverture.releve} relevés avant la partie · ${couverture.approx} approchés (relevé après) · ${couverture.seed} d'après la division de collecte · ${couverture.inconnu} inconnus`);
   say(`Contrôle : place moyenne générale = ${out.controleMoyenne} (doit valoir 4.5)`);
   say(`\nMeilleures compos pour viser la 1re place (au moins ${MIN_N} plateaux) :`);
   say('  1re place (corrigée) · top 4 · place moy. · plateaux · compo');

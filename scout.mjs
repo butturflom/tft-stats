@@ -3,22 +3,16 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { DATA, loadEnv, Riot, loadNames, prettyId } from './lib.mjs';
-import { compact } from './collecter.mjs';
+import { compact, joueursDe } from './collecter.mjs';
+import { ouvrir, ajouterPartie, ajouterRang } from './db.mjs';
 import { currentLobby } from './lcu.mjs';
 
 const FILE = path.join(DATA, 'lobby.json');
-const PARTIES = path.join(DATA, 'parties.jsonl');
 const PAR_JOUEUR = 4;      // parties classées regardées par joueur
 const TIERS_FR = { IRON: 'Fer', BRONZE: 'Bronze', SILVER: 'Argent', GOLD: 'Or', PLATINUM: 'Platine', EMERALD: 'Émeraude', DIAMOND: 'Diamant', MASTER: 'Maître', GRANDMASTER: 'Grand Maître', CHALLENGER: 'Challenger' };
 
 export const scoutState = { statut: 'idle', gameId: null, t: null, erreur: null, source: null, spectateur: null };
 export const readLobby = () => { try { return JSON.parse(fs.readFileSync(FILE, 'utf8')); } catch { return null; } };
-
-function knownIds() {
-  const ids = new Set();
-  try { for (const l of fs.readFileSync(PARTIES, 'utf8').split('\n')) { const m = l.slice(0, 60).match(/"id":"([^"]+)"/); if (m) ids.add(m[1]); } } catch {}
-  return ids;
-}
 
 // Compo d'un plateau : trait principal + carry (champion qui porte le plus d'objets)
 function boardInfo(b, names) {
@@ -62,7 +56,7 @@ export async function scoutLobby({ puuid, gameId = null, puuids = null, log = ()
     if (!autres.length) throw new Error('aucun autre joueur trouvé dans cette partie');
     scoutState.source = source;
     const names = await loadNames();
-    const known = knownIds();
+    const db = ouvrir();
     const joueurs = [];
     for (const p of autres) {
       // Nom et rang du joueur
@@ -71,7 +65,7 @@ export async function scoutLobby({ puuid, gameId = null, puuids = null, log = ()
       try {
         const entries = await riot.platformGet(`/tft/league/v1/by-puuid/${p}`);
         const e = Array.isArray(entries) ? entries.find(x => x.queueType === 'RANKED_TFT') : null;
-        if (e) rang = `${TIERS_FR[e.tier] || e.tier} ${e.rank} · ${e.leaguePoints} LP`;
+        if (e) { rang = `${TIERS_FR[e.tier] || e.tier} ${e.rank} · ${e.leaguePoints} LP`; ajouterRang(db, p, { tier: e.tier, div: e.rank, lp: e.leaguePoints }); }
       } catch {}
       const ids = (await riot.regionGet(`/tft/match/v1/matches/by-puuid/${p}/ids?count=8`)) || [];
       const boards = [];
@@ -81,7 +75,7 @@ export async function scoutLobby({ puuid, gameId = null, puuids = null, log = ()
         const part = m?.info?.participants?.find(x => x.puuid === p);
         const rec = compact(m, 'LOBBY', null);
         if (!rec || !part) continue; // seulement les parties classées
-        if (!known.has(rec.id)) { fs.appendFileSync(PARTIES, JSON.stringify(rec) + '\n'); known.add(rec.id); }
+        ajouterPartie(db, rec, joueursDe(m));
         const b = rec.b.find(x => x.p === part.placement);
         if (b) boards.push({ ...boardInfo(b, names), t: rec.t });
       }

@@ -17,7 +17,11 @@ const COST = { Akali: 1, Rougelin: 1, Ornn: 1, Caillou: 1, "Rek'Sai": 1, Varus: 
   Ahri: 4, Amumu: 4, Aphelios: 4, Roncier: 4, Ezreal: 4, Lillia: 4, Malphite: 4, Morgana: 4, Nidalee: 4, Sentinelle: 4, Sett: 4, Sivir: 4, Soraka: 4, Zyra: 4,
   Alune: 5, Ashe: 5, Draven: 5, 'Dragon ancestral': 5, Lux: 5, Maokai: 5, Gnar: 5, Ivern: 5, Kennen: 5, Taric: 5 };
 const RANK_TXT = { 1: '1st', 2: '2nd', 3: '3rd' };
-const TIERS_FR = { IRON: 'Fer', BRONZE: 'Bronze', SILVER: 'Argent', GOLD: 'Or', PLATINUM: 'Platine', EMERALD: 'Émeraude', DIAMOND: 'Diamant' };
+const TIERS_FR = { IRON: 'Fer', BRONZE: 'Bronze', SILVER: 'Argent', GOLD: 'Or', PLATINUM: 'Platine', EMERALD: 'Émeraude', DIAMOND: 'Diamant', MASTER: 'Maître', GRANDMASTER: 'Grand maître', CHALLENGER: 'Challenger' };
+const APEX = ['MASTER', 'GRANDMASTER', 'CHALLENGER'];
+// Toutes les divisions du ladder, de Fer IV à Challenger
+const ALL_RANKS = Object.keys(TIERS_FR).flatMap(t => (APEX.includes(t) ? [`${t}:I`] : ['IV', 'III', 'II', 'I'].map(d => `${t}:${d}`)));
+const rangsChoisis = r => { const s = String(r || '').trim().toUpperCase(); return !s || s === 'TOUS' ? ALL_RANKS.slice() : s.split(',').filter(x => ALL_RANKS.includes(x)); };
 
 let STATE = null, STATS = null, ICONS = {}, statsVer = null, TAB = 'compos';
 let AUG = { version: null, augments: {} }, augVer = null, EDITING = false;
@@ -58,12 +62,14 @@ function itemIcon(o) {
 
 // ---- En-tête : état de la collecte ----
 function rangsTxt(r) {
-  const list = String(r || '').split(',').map(x => x.split(':')).filter(x => x.length === 2);
+  const chosen = rangsChoisis(r);
+  if (chosen.length === ALL_RANKS.length) return 'tout le ladder';
+  const list = chosen.map(x => x.split(':'));
   if (!list.length) return '';
   const order = Object.keys(TIERS_FR), divs = ['IV', 'III', 'II', 'I'];
   const val = ([t, d]) => order.indexOf(t) * 4 + divs.indexOf(d);
   list.sort((a, b) => val(a) - val(b));
-  const lbl = ([t, d]) => `${TIERS_FR[t] || t} ${d}`;
+  const lbl = ([t, d]) => (APEX.includes(t) ? TIERS_FR[t] : `${TIERS_FR[t] || t} ${d}`);
   return list.length === 1 ? lbl(list[0]) : `${lbl(list[0])} → ${lbl(list[list.length - 1])}`;
 }
 function renderStatus() {
@@ -71,11 +77,14 @@ function renderStatus() {
   if (!s) return;
   $('#scope').textContent = `EUW · ${rangsTxt(s.settings.rangs)}`;
   const st = $('#status'), bar = $('#progress');
-  const total = s.lastResult ? s.lastResult.total : (STATS ? STATS.parties : 0);
+  const total = s.base && s.base.parties != null ? s.base.parties : s.lastResult ? s.lastResult.total : (STATS ? STATS.parties : 0);
   if (s.running && s.phase === 'collecte') {
     const p = s.progress || {};
-    const phase = p.phase === 'parties' ? `${int(p.added)}/${int(p.target)} parties` : p.phase === 'joueurs' ? 'recherche de joueurs…' : p.phase === 'mes parties' ? 'tes parties…' : 'démarrage…';
-    st.innerHTML = `<span class="dot run"></span><b>Collecte</b> · ${phase}${p.resteMin != null ? ` · reste ≈ ${p.resteMin} min` : ''} · ${int(p.requests)} requêtes`;
+    const label = { joueurs: 'parties récentes des joueurs…', 'mes parties': 'tes parties…', ligue: 'lecture du classement…', pause: 'pause : budget horaire de requêtes atteint…' }[p.phase];
+    const phase = p.phase === 'parties' || (label && p.added) ? `${int(p.added)}/${int(p.target)} parties${label && p.phase !== 'parties' ? ' · ' + label : ''}` : label || 'démarrage…';
+    const f = p.file;
+    const file = f && (f.joueur || f.ligue) ? ` · file : ${int(f.joueur)} joueurs${f.ligue ? `, ${int(f.ligue)} pages` : ''}` : '';
+    st.innerHTML = `<span class="dot run"></span><b>Collecte</b> · ${phase}${p.resteMin != null ? ` · reste ≈ ${p.resteMin} min` : ''} · ${int(p.requests)} requêtes${file}`;
     bar.hidden = false; bar.firstElementChild.style.width = p.target ? Math.min(100, 100 * p.added / p.target) + '%' : '0';
   } else if (s.running) {
     st.innerHTML = `<span class="dot run"></span><b>Analyse en cours…</b>`;
@@ -695,8 +704,9 @@ function renderReglages() {
   const el = $('#tab-reglages');
   if (!STATE) return;
   const s = STATE.settings;
-  const chosen = new Set(String(s.rangs).split(','));
+  const chosen = new Set(rangsChoisis(s.rangs));
   const tiers = Object.keys(TIERS_FR), divs = ['IV', 'III', 'II', 'I'];
+  const box = (t, d) => `<label><input type="checkbox" name="rang" value="${t}:${d}" ${chosen.has(`${t}:${d}`) ? 'checked' : ''}>${APEX.includes(t) ? TIERS_FR[t] : `${TIERS_FR[t]} ${d}`}</label>`;
   el.innerHTML = `<h2>Réglages</h2>
     <form class="form" id="form" autocomplete="off">
       <div class="field"><label for="key">Clé Riot API</label>
@@ -704,14 +714,16 @@ function renderReglages() {
         <small>${s.keyPresent ? '✓ Une clé est enregistrée.' : 'Aucune clé.'} Les clés de développement expirent après 24 h : génère-en une nouvelle sur <a href="https://developer.riotgames.com" target="_blank" rel="noopener">developer.riotgames.com</a> et colle-la ici. Elle reste sur ton PC, dans le fichier .env.</small></div>
       <div class="field"><label for="riotId">Ton Riot ID</label>
         <input id="riotId" placeholder="Pseudo#TAG" value="${esc(s.riotId)}"><small>Pour l'onglet « Mes parties ». Laisse vide pour ne pas l'utiliser.</small></div>
-      <div class="field"><label>Rangs collectés</label>
-        <div class="ranks">${tiers.map(t => divs.map(d => `<label><input type="checkbox" name="rang" value="${t}:${d}" ${chosen.has(`${t}:${d}`) ? 'checked' : ''}>${TIERS_FR[t]} ${d}</label>`).join('')).join('')}</div>
-        <small>Garde des rangs proches du tien : ce sont les lobbys que tu rencontres.</small></div>
+      <div class="field"><label>Rangs (collecte et analyse)</label>
+        <div class="ranks">${tiers.filter(t => !APEX.includes(t)).map(t => divs.map(d => box(t, d)).join('')).join('')}${APEX.map(t => box(t, 'I')).join('')}</div>
+        <div class="row"><button type="button" class="ghost" id="rangsTous">Tout le ladder</button><button type="button" class="ghost" id="rangsAucun">Tout décocher</button></div>
+        <small>La collecte lit le classement complet de chaque rang coché, page par page, sur plusieurs jours si besoin : la file reprend là où elle s'est arrêtée. L'analyse ne garde que les parties jouées à ces rangs. Des rangs proches du tien donnent les lobbys que tu rencontres.</small></div>
       <div class="row">
         <div class="field"><label for="parties">Grosse collecte</label><input id="parties" type="number" min="50" max="5000" value="${s.parties}"><small>parties, la première fois</small></div>
         <div class="field"><label for="partiesAuto">Mise à jour auto</label><input id="partiesAuto" type="number" min="20" max="2000" value="${s.partiesAuto}"><small>parties à chaque fois</small></div>
         <div class="field"><label for="autoMin">Intervalle</label><input id="autoMin" type="number" min="0" max="600" value="${s.autoMin}"><small>minutes (0 = jamais)</small></div>
         <div class="field"><label for="jours">Ancienneté max</label><input id="jours" type="number" min="1" max="30" value="${s.jours}"><small>jours</small></div>
+        <div class="field"><label for="budget">Budget</label><input id="budget" type="number" min="0" max="100000" value="${s.budget}"><small>requêtes par heure (0 = sans limite ; une clé de développement en permet 3 000)</small></div>
       </div>
       <label class="row"><input type="checkbox" id="autoStart" ${s.autoStart ? 'checked' : ''}> Lancer une mise à jour à l'ouverture de l'application</label>
       <label class="row"><input type="checkbox" id="recapFenetre" ${s.recapFenetre ? 'checked' : ''}> Ouvrir le récap après chaque partie (client LoL ouvert)</label>
@@ -737,13 +749,16 @@ function renderReglages() {
     const msg = $('#msg');
     const body = {
       riotId: $('#riotId').value, rangs: [...document.querySelectorAll('input[name=rang]:checked')].map(x => x.value).join(','),
-      parties: $('#parties').value, partiesAuto: $('#partiesAuto').value, autoMin: $('#autoMin').value, jours: $('#jours').value, autoStart: $('#autoStart').checked, recapFenetre: $('#recapFenetre').checked, overlayAuto: $('#overlayAuto').checked, overlayForme: $('#overlayForme').checked, lobbyAuto: $('#lobbyAuto').checked, mobile: $('#mobile').checked, demarrageWindows: $('#demarrageWindows').checked,
+      parties: $('#parties').value, partiesAuto: $('#partiesAuto').value, autoMin: $('#autoMin').value, jours: $('#jours').value, budget: $('#budget').value, autoStart: $('#autoStart').checked, recapFenetre: $('#recapFenetre').checked, overlayAuto: $('#overlayAuto').checked, overlayForme: $('#overlayForme').checked, lobbyAuto: $('#lobbyAuto').checked, mobile: $('#mobile').checked, demarrageWindows: $('#demarrageWindows').checked,
     };
     if ($('#key').value.trim()) body.key = $('#key').value.trim();
     if ($('#mobilePin').value.trim()) body.mobilePin = $('#mobilePin').value.trim();
     try { const r = await api('/api/reglages', body); STATE = r; renderReglages(); const m2 = $('#msg'); m2.className = 'ok-msg'; m2.textContent = r.redemarrer ? 'Enregistré. Quitte puis relance l\'application pour activer l\'accès téléphone.' : 'Enregistré.'; renderStatus(); }
     catch (err) { msg.className = 'err-msg'; msg.textContent = err.message; }
   };
+  const cocher = v => document.querySelectorAll('input[name=rang]').forEach(x => { x.checked = v; });
+  $('#rangsTous').onclick = () => cocher(true);
+  $('#rangsAucun').onclick = () => cocher(false);
   $('#ovNow').onclick = () => api('/api/overlay', { taille: s.overlayCompact ? 'compact' : 'complet' }).catch(err => { $('#msg').className = 'err-msg'; $('#msg').textContent = err.message; });
   $('#reanalyse').onclick = () => api('/api/analyse', {}).catch(() => {});
   $('#quit').onclick = async () => { await api('/api/quitter', {}).catch(() => {}); document.body.innerHTML = '<div class="empty" style="margin:40px">TFT Stats est fermé. Tu peux fermer cette fenêtre.</div>'; };

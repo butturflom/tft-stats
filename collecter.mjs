@@ -1,17 +1,24 @@
-// Collecte des parties classées TFT (EUW) aux rangs proches du tien.
+// Collecte des parties classées TFT : le classement complet des rangs choisis (RANGS, vide = tout le ladder),
+// avec une file de jobs gardée dans data/tft.db (reprise après un arrêt, priorités, budget horaire).
 // En ligne de commande : node collecter.mjs [--parties=800]   (lance aussi l'analyse à la fin)
 // Depuis l'application : import { collect } from './collecter.mjs'
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { loadEnv, Riot, DATA } from './lib.mjs';
+import { loadEnv, Riot, DATA, sleep } from './lib.mjs';
+import {
+  ouvrir, ajouterPartie, remplacerPartie, partieConnue, nombreParties, partiesAEnrichir, ajouterRang,
+  ajouterJob, jobSuivant, jobFait, jobEchec, reprendreJobs, etatFile, noterRequetes, attenteBudget, APEX, rangsCibles,
+} from './db.mjs';
+export { rangsCibles };
 import { analyse } from './analyser.mjs';
 
 const RANKED = 1100;
-const PAR_JOUEUR = 4;
-const FILE = path.join(DATA, 'parties.jsonl');
-const LOCK = path.join(DATA, 'collecte.lock');
-const RANG = path.join(DATA, 'rang.jsonl');
+const PAR_JOUEUR = 4;            // nouvelles parties gardées par joueur et par passage
+const LOCK = () => path.join(DATA, 'collecte.lock');
+const RANG = () => path.join(DATA, 'rang.jsonl');
+export const PRIO = { moi: 100, ligue: 60, partie: 50, joueur: 30, page: 20 };
+export const TTL = { ligue: 24 * 3600e3, joueur: 12 * 3600e3 };
 
 // Rang classé actuel (tier, division, LP) : ajouté à l'historique s'il a changé
 export async function fetchRank(riot, puuid) {
@@ -24,8 +31,9 @@ export async function fetchRank(riot, puuid) {
   if (!e) return null;
   const point = { t: Date.now(), tier: e.tier, div: e.rank, lp: e.leaguePoints, v: e.wins, d: e.losses };
   let last = null;
-  try { const lines = fs.readFileSync(RANG, 'utf8').trim().split('\n'); last = JSON.parse(lines[lines.length - 1]); } catch {}
-  if (!last || last.tier !== point.tier || last.div !== point.div || last.lp !== point.lp || last.v !== point.v || last.d !== point.d) fs.appendFileSync(RANG, JSON.stringify(point) + '\n');
+  try { const lines = fs.readFileSync(RANG(), 'utf8').trim().split('\n'); last = JSON.parse(lines[lines.length - 1]); } catch {}
+  if (!last || last.tier !== point.tier || last.div !== point.div || last.lp !== point.lp || last.v !== point.v || last.d !== point.d) fs.appendFileSync(RANG(), JSON.stringify(point) + '\n');
+  try { ajouterRang(ouvrir(), puuid, point); } catch {}
   return point;
 }
 let cachedPuuid = null;
@@ -45,7 +53,6 @@ export async function refreshRank() {
   return puuid ? fetchRank(riot, puuid) : null;
 }
 
-const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
 const pidAlive = pid => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
 
 // Version compacte d'une partie : on ne garde que ce qui sert aux stats, sans identifiant de joueur.
@@ -71,130 +78,158 @@ export function compact(m, seedRank, myPuuid) {
   return rec.b.length === 8 ? rec : null;
 }
 
-export async function collect({ target, onProgress = () => {}, shouldStop = () => false, log = console.log } = {}) {
-  if (fs.existsSync(LOCK)) {
+// Joueurs d'une partie [puuid, place] : rangés à part dans la base (table participants), jamais dans le JSON.
+export const joueursDe = m => ((m && m.info && m.info.participants) || []).filter(p => p.puuid).map(p => [p.puuid, p.placement]);
+
+export async function collect({ target, onProgress = () => {}, shouldStop = () => false, log = console.log, env = null, riot = null } = {}) {
+  const lock = LOCK();
+  if (fs.existsSync(lock)) {
     let busy = false;
     try {
-      const l = JSON.parse(fs.readFileSync(LOCK, 'utf8'));
+      const l = JSON.parse(fs.readFileSync(lock, 'utf8'));
       busy = l.pid !== process.pid && pidAlive(l.pid) && Date.now() - l.t < 3 * 3600e3;
     } catch {}
     if (busy) throw new Error('Une collecte est déjà en cours dans une autre fenêtre.');
   }
-  fs.writeFileSync(LOCK, JSON.stringify({ pid: process.pid, t: Date.now() }));
+  fs.writeFileSync(lock, JSON.stringify({ pid: process.pid, t: Date.now() }));
   try {
-    return await run({ target, onProgress, shouldStop, log });
+    return await run({ target, onProgress, shouldStop, log, env: env || loadEnv(), riot });
   } finally {
-    try { fs.unlinkSync(LOCK); } catch {}
+    try { fs.unlinkSync(lock); } catch {}
   }
 }
 
-async function run({ target, onProgress, shouldStop, log }) {
-  const env = loadEnv();
+async function run({ target, onProgress, shouldStop, log, env, riot }) {
+  const db = ouvrir();
   const TARGET = Number(target || env.PARTIES_PAR_COLLECTE || 800);
-  const RANGS = (env.RANGS || 'SILVER:I,SILVER:II,SILVER:III,GOLD:IV,GOLD:III')
-    .split(',').map(s => s.trim().toUpperCase().split(':')).filter(x => x.length === 2);
+  const RANGS = rangsCibles(env.RANGS);
   const JOURS = Number(env.JOURS || 14);
-  const riot = new Riot(env);
+  const BUDGET = env.REQUETES_HEURE === undefined || env.REQUETES_HEURE === '' ? 2700 : Math.max(0, Number(env.REQUETES_HEURE) || 0);
+  riot = riot || new Riot(env);
   const startTime = Math.floor((Date.now() - JOURS * 864e5) / 1000);
   const t0 = Date.now();
-
-  const seen = new Set();
-  const enrich = new Set(); // tes parties stockées avant l'ajout de l'or restant : on les recharge une fois
-  if (fs.existsSync(FILE)) {
-    for (const l of fs.readFileSync(FILE, 'utf8').split('\n')) {
-      if (!l.trim()) continue;
-      try { const r = JSON.parse(l); seen.add(r.id); if (r.b.some(b => b.me && b.g === undefined)) enrich.add(r.id); } catch {}
-    }
-  }
-  const before = seen.size;
-  let added = 0;
+  const repris = reprendreJobs(db);
+  const before = nombreParties(db);
+  let added = 0, noted = riot.count;
+  const compter = () => { noterRequetes(db, riot.count - noted); noted = riot.count; };
   const progress = phase => {
     const mins = (Date.now() - t0) / 60000;
     const rate = added / Math.max(mins, 0.1);
-    onProgress({ phase, added, target: TARGET, requests: riot.count, resteMin: added ? Math.ceil(Math.max(0, (TARGET - added) / rate)) : null });
+    onProgress({ phase, added, target: TARGET, requests: riot.count, resteMin: added ? Math.ceil(Math.max(0, (TARGET - added) / rate)) : null, file: etatFile(db) });
   };
 
-  log(`Collecte · rangs ${RANGS.map(r => r.join(' ')).join(', ')} · objectif ${TARGET} parties · en stock ${before}`);
+  const tout = RANGS.length === rangsCibles('').length;
+  log(`Collecte · ${tout ? 'tout le ladder' : 'rangs ' + RANGS.map(r => r.join(' ')).join(', ')} · objectif ${TARGET} parties · en stock ${before}${repris ? ` · ${repris} jobs repris` : ''}`);
 
-  const fetchMatch = async (id, seedRank, myPuuid) => {
-    if (seen.has(id)) return false;
-    seen.add(id);
-    const m = await riot.regionGet(`/tft/match/v1/matches/${id}`);
-    const rec = compact(m, seedRank, myPuuid);
-    if (!rec) return false;
-    fs.appendFileSync(FILE, JSON.stringify(rec) + '\n');
-    added++;
-    progress('parties');
-    return true;
-  };
-
-  // 1. Tes propres parties, si RIOT_ID est renseigné (format Pseudo#TAG)
+  // 1. Tes propres parties, si RIOT_ID est renseigné (format Pseudo#TAG) : en tête de file
   let myPuuid = null;
   if (env.RIOT_ID && env.RIOT_ID.includes('#')) {
     progress('mes parties');
-    const [name, tag] = env.RIOT_ID.split('#');
-    const acc = await riot.regionGet(`/riot/account/v1/accounts/by-riot-id/${encodeURIComponent(name.trim())}/${encodeURIComponent(tag.trim())}`);
-    if (acc && acc.puuid) {
-      myPuuid = acc.puuid; cachedPuuid = acc.puuid;
+    myPuuid = await myPuuidFromEnv(riot, env).catch(e => { if (e.fatal) throw e; return null; });
+    if (myPuuid) {
       try { const r = await fetchRank(riot, myPuuid); if (r) log(`Rang : ${r.tier} ${r.div} ${r.lp} LP`); } catch {}
       const ids = (await riot.regionGet(`/tft/match/v1/matches/by-puuid/${myPuuid}/ids?count=100`)) || [];
-      const fixed = new Map();
+      const enrich = partiesAEnrichir(db);
+      let fixed = 0;
       for (const id of ids) {
         if (shouldStop()) break;
         if (enrich.has(id)) {
-          const rec = compact(await riot.regionGet(`/tft/match/v1/matches/${id}`), 'MOI', myPuuid);
-          if (rec) fixed.set(id, JSON.stringify(rec));
+          const m = await riot.regionGet(`/tft/match/v1/matches/${id}`);
+          const rec = compact(m, 'MOI', myPuuid);
+          if (rec) { remplacerPartie(db, rec, joueursDe(m)); fixed++; }
           continue;
         }
-        await fetchMatch(id, 'MOI', myPuuid);
+        if (!partieConnue(db, id)) ajouterJob(db, 'partie', id, PRIO.moi, { seed: 'MOI' });
       }
-      if (fixed.size) {
-        const lines = fs.readFileSync(FILE, 'utf8').split('\n').map(l => {
-          if (!l.trim()) return l;
-          try { const id = JSON.parse(l).id; return fixed.get(id) || l; } catch { return l; }
-        });
-        fs.writeFileSync(FILE + '.tmp', lines.join('\n'));
-        fs.renameSync(FILE + '.tmp', FILE);
-        log(`${fixed.size} de tes parties complétées (or restant, dégâts).`);
-      }
+      if (fixed) log(`${fixed} de tes parties complétées (or restant, dégâts).`);
     } else {
       log(`Riot ID « ${env.RIOT_ID} » introuvable : collecte sans tes parties.`);
     }
+    compter();
   }
 
-  // 2. Joueurs des rangs ciblés
-  progress('joueurs');
-  const players = [];
+  // 2. Classement : une page par division (et Master, Grand Maître, Challenger), relue au plus une fois par jour
   for (const [tier, div] of RANGS) {
-    if (shouldStop()) break;
-    const page = 1 + Math.floor(Math.random() * 4);
-    let entries = (await riot.platformGet(`/tft/league/v1/entries/${tier}/${div}?queue=RANKED_TFT&page=${page}`)) || [];
-    if (!entries.length && page > 1) entries = (await riot.platformGet(`/tft/league/v1/entries/${tier}/${div}?queue=RANKED_TFT&page=1`)) || [];
-    for (const e of entries) players.push({ puuid: e.puuid, sid: e.summonerId, rank: `${tier} ${div}` });
+    if (APEX.includes(tier)) ajouterJob(db, 'ligue', tier, PRIO.ligue, { tier, div: 'I', page: 0 }, TTL.ligue);
+    else ajouterJob(db, 'ligue', `${tier}:${div}:1`, PRIO.ligue, { tier, div, page: 1 }, TTL.ligue);
   }
-  shuffle(players);
-  log(`${players.length} joueurs trouvés.`);
+  const cibles = new Set(RANGS.map(([t, d]) => `${t}:${d}`));
 
-  // 3. Leurs parties récentes
-  for (const pl of players) {
-    if (shouldStop() || added >= TARGET) break;
-    let puuid = pl.puuid;
-    if (!puuid && pl.sid) {
-      const s = await riot.platformGet(`/tft/summoner/v1/summoners/${pl.sid}`);
-      puuid = s && s.puuid;
+  // 3. File de jobs : parties d'abord, puis joueurs, puis pages suivantes du classement
+  let job;
+  while (!shouldStop() && added < TARGET) {
+    const wait = attenteBudget(db, BUDGET);
+    if (wait) {
+      progress('pause');
+      const fin = Date.now() + wait;
+      while (Date.now() < fin && !shouldStop()) await sleep(Math.min(5000, fin - Date.now()));
+      continue;
     }
-    if (!puuid) continue;
-    const ids = (await riot.regionGet(`/tft/match/v1/matches/by-puuid/${puuid}/ids?count=10&startTime=${startTime}`)) || [];
-    let took = 0;
-    for (const id of ids) {
-      if (shouldStop() || added >= TARGET || took >= PAR_JOUEUR) break;
-      if (await fetchMatch(id, pl.rank, myPuuid)) took++;
+    job = jobSuivant(db);
+    if (!job) break;
+    try {
+      if (job.kind === 'ligue') {
+        const { tier, div, page } = job.data;
+        if (!cibles.has(`${tier}:${div}`)) { jobFait(db, job, { supprimer: true }); continue; }
+        progress('ligue');
+        let entries;
+        if (page === 0) {
+          const list = await riot.platformGet(`/tft/league/v1/${tier.toLowerCase()}?queue=RANKED_TFT`);
+          entries = (list && list.entries) || [];
+        } else {
+          entries = (await riot.platformGet(`/tft/league/v1/entries/${tier}/${div}?queue=RANKED_TFT&page=${page}`)) || [];
+        }
+        const now = Date.now();
+        for (const e of entries) {
+          const id = e.puuid || (e.summonerId ? `sid:${e.summonerId}` : null);
+          if (!id) continue;
+          if (e.puuid) ajouterRang(db, e.puuid, { t: now, tier, div: e.rank || div, lp: e.leaguePoints });
+          ajouterJob(db, 'joueur', id, PRIO.joueur, { rang: `${tier} ${APEX.includes(tier) ? 'I' : div}` }, TTL.joueur);
+        }
+        if (page > 0 && entries.length) ajouterJob(db, 'ligue', `${tier}:${div}:${page + 1}`, PRIO.page, { tier, div, page: page + 1 }, TTL.ligue);
+        jobFait(db, job);
+      } else if (job.kind === 'joueur') {
+        progress('joueurs');
+        let puuid = job.cle;
+        if (puuid.startsWith('sid:')) {
+          const s = await riot.platformGet(`/tft/summoner/v1/summoners/${puuid.slice(4)}`);
+          puuid = s && s.puuid;
+        }
+        if (puuid) {
+          const ids = (await riot.regionGet(`/tft/match/v1/matches/by-puuid/${puuid}/ids?count=10&startTime=${startTime}`)) || [];
+          let took = 0;
+          for (const id of ids) {
+            if (took >= PAR_JOUEUR) break;
+            if (partieConnue(db, id)) continue;
+            if (ajouterJob(db, 'partie', id, PRIO.partie, { seed: job.data && job.data.rang })) took++;
+          }
+        }
+        jobFait(db, job);
+      } else if (job.kind === 'partie') {
+        if (!partieConnue(db, job.cle)) {
+          const m = await riot.regionGet(`/tft/match/v1/matches/${job.cle}`);
+          const seed = job.data && job.data.seed;
+          const rec = compact(m, seed, myPuuid);
+          if (rec) { if (ajouterPartie(db, rec, joueursDe(m))) { added++; progress('parties'); } }
+          else if (m) { jobFait(db, job); continue; } // partie non classée : gardée comme faite, jamais relue
+        }
+        jobFait(db, job, { supprimer: true });
+      } else {
+        jobFait(db, job, { supprimer: true });
+      }
+    } catch (e) {
+      if (e.fatal) { reprendreJobs(db); throw e; } // clé refusée : le job n'y est pour rien, il repart en file
+      jobEchec(db, job);
+      log(`Job ${job.kind} ${job.cle.slice(0, 24)} : ${e.message}`);
+    } finally {
+      compter();
     }
   }
-
   const minutes = Math.round((Date.now() - t0) / 6000) / 10;
-  log(`Collecte terminée : ${added} nouvelles parties en ${minutes} min (${riot.count} requêtes). Total : ${seen.size}.`);
-  return { added, total: seen.size, requests: riot.count, minutes, stopped: shouldStop() };
+  const total = nombreParties(db);
+  const file = etatFile(db);
+  log(`Collecte terminée : ${added} nouvelles parties en ${minutes} min (${riot.count} requêtes). Total : ${total}. File : ${file.joueur} joueurs, ${file.ligue} pages, ${file.partie} parties.`);
+  return { added, total, requests: riot.count, minutes, stopped: shouldStop(), file };
 }
 
 // ---- Utilisation en ligne de commande ----
@@ -206,7 +241,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] || "").href) {
     stop = true;
     console.log('\n\nArrêt demandé : je termine et je lance l\'analyse sur ce qui est déjà collecté…');
   });
-  console.log('\nTu peux arrêter à tout moment avec Ctrl+C : rien n\'est perdu.\n');
+  console.log('\nTu peux arrêter à tout moment avec Ctrl+C : rien n\'est perdu, la file reprendra au prochain lancement.\n');
   try {
     await collect({
       target: args.parties,

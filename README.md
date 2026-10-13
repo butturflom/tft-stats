@@ -6,15 +6,15 @@ Personal statistics for Teamfight Tactics (TFT) ranked games, built on the offic
 
 ## Features
 
-- Collects ranked EUW matches through the Riot API and keeps them in local files.
-- Computes statistics per composition from the collected games: average placement, contestation, carries, items, traits and units.
+- Collects ranked EUW matches through the Riot API, from the full ladder (Iron to Challenger) or the ranks you choose, and keeps them in a local SQLite database. Collection runs from a persistent job queue: it resumes where it stopped and respects an hourly request budget.
+- Computes statistics per composition from the collected games: average placement, contestation, carries, items, traits and units. Games are filtered by the rank they were played at, taken from rank snapshots of the players.
 - Shows a dashboard, and an overlay with the composition you follow.
 - When the League client is open on your PC, reads your augments and the current game from its local lockfile, and shows a recap after each ranked game.
 
 ## Requirements
 
 - Windows 10 or 11
-- [Node.js](https://nodejs.org) 18 or newer
+- [Node.js](https://nodejs.org) 22.13 or newer (for the built-in `node:sqlite` module)
 - A Riot API key from the [Riot Developer Portal](https://developer.riotgames.com). Development keys expire after 24 hours.
 
 ## Quick start
@@ -32,6 +32,7 @@ On Windows, `TFT Stats.vbs` starts the app without a console window. The user gu
 | `npm start` | Starts the app (server and dashboard) |
 | `npm run collecte` | Collects matches from the command line, then analyses them |
 | `npm run analyse` | Runs the analysis only |
+| `npm run export` | Exports every stored match to `data/export-parties.jsonl` |
 | `npm run lint` | Checks the syntax of every JavaScript file |
 | `npm test` | Runs the tests |
 
@@ -48,10 +49,12 @@ No third-party website is used.
 
 - Collected data and analysis results stay on your computer, in the `data/` folder. That folder and your `.env` file are never committed.
 - Your API key is stored only in `.env`.
+- To place each game at the rank it was played, the local database keeps the Riot player IDs (PUUIDs) of the players in each collected game and their observed ranks. They stay in `data/tft.db`, are never written to the exported matches or to the statistics, and are only used locally.
 
 ## Limitations
 
-- Collection samples players from a few divisions. It does not cover the full ladder yet; that is planned.
+- A development key allows about 3,000 requests per hour, roughly 2,000 matches. Reading the full ladder takes days; the queue spreads it over several sessions.
+- The rank of a game comes from the closest rank snapshot taken before it, or up to 3 days after it. Games stored before version 0.2 have no player list: their rank is the division they were collected from.
 - Riot does not publish augment statistics for the current set. Augment data comes from your own entries and, when the League client is open, from the client.
 
 ## Legal

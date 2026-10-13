@@ -1,5 +1,5 @@
-TFT STATS · application locale (EUW, Argent–Or)
-================================================
+TFT STATS · application locale (EUW)
+====================================
 
 Ce que fait l'appli
 - Collecte les parties classées TFT EUW via l'API officielle de Riot, calcule les
@@ -42,8 +42,19 @@ Onglets
                    s'affiche avec ce qui a marché, ce qui a coûté des places,
                    et la saisie de tes 3 augments.
 - Mes parties    : tes résultats par compo (renseigne ton Riot ID dans Réglages).
-- Réglages       : clé, Riot ID, rangs collectés, volumes, intervalle,
-                   téléphone (même Wi-Fi, code PIN, si activé dans .env).
+- Réglages       : clé, Riot ID, rangs (collecte et analyse), volumes, intervalle,
+                   budget de requêtes, téléphone (même Wi-Fi, code PIN).
+
+Collecte du ladder
+- Par défaut, tout le ladder (de Fer IV à Challenger). Dans Réglages, coche seulement
+  les rangs qui t'intéressent : la collecte lit leur classement complet, page par page,
+  et l'analyse ne garde que les parties jouées à ces rangs.
+- La collecte suit une file de travail rangée dans data/tft.db : si tu arrêtes ou si
+  le PC s'éteint, elle reprend là où elle s'était arrêtée.
+- Budget : 2 700 requêtes par heure par défaut (une clé de développement en permet
+  3 000). Lire tout le ladder prend plusieurs jours : c'est normal.
+- Le rang d'une partie est celui des joueurs au moment où elle a été jouée (relevé
+  le plus proche avant la partie, ou jusqu'à 3 jours après).
 
 Overlay
 - Petite fenêtre au-dessus du jeu, avec ta compo suivie (bouton « Suivre en partie »).
@@ -64,13 +75,19 @@ Fichiers
 - TFT Stats (console).bat  même chose, avec le journal visible (en cas de souci)
 - collecter.bat / analyser.bat  l'ancienne méthode, toujours utilisable
 - .env                     ta clé et tes réglages (ne jamais partager)
-- data/parties.jsonl       toutes les parties collectées (elles s'accumulent)
+- data/tft.db              base SQLite : parties, rangs relevés, file de collecte
+- data/parties-avant-sqlite.jsonl  ancien fichier des parties, importé dans tft.db au
+                           premier lancement de la version 0.2 (gardé en sauvegarde)
+- npm run export           exporte les parties dans data/export-parties.jsonl
 - data/stats.json          résultats de la dernière analyse
 - data/augments-fr.json    noms et descriptions des augments (Data Dragon, reconstruit si absent)
 - data/app.log             journal de l'application
 
 En cas de problème
 - « node » introuvable : réinstalle Node.js depuis nodejs.org puis redémarre le PC.
+- Node.js 22.13 ou plus récent est nécessaire (base SQLite intégrée). Vérifie avec
+  « node -v » dans un terminal ; sinon installe la version LTS depuis nodejs.org.
+  Le message apparaît aussi dans data/app.log.
 - Rien ne s'ouvre : lance « TFT Stats (console).bat » pour lire le message d'erreur.
 - Augments vides ou sans noms : vérifie la connexion internet, supprime
   data/augments-fr.json puis relance l'appli : le fichier est reconstruit depuis Data Dragon.
