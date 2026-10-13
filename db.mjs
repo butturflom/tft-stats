@@ -123,11 +123,15 @@ export const partieConnue = (db, id) => !!db.prepare('SELECT 1 FROM parties WHER
 export const nombreParties = db => db.prepare('SELECT COUNT(*) n FROM parties').get().n;
 // Texte JSON de chaque partie (l'analyse les relit et les contrôle elle-même)
 export const lireParties = db => db.prepare('SELECT json FROM parties ORDER BY t').all().map(r => r.json);
-// Tes parties enregistrées avant l'ajout de l'or restant : à recharger une fois
+// Tes parties à recharger depuis l'API : enregistrées avant l'ajout de l'or restant, ou vues seulement par le
+// client LoL, qui donne la date en texte. Ces dernières sont provisoires : le contrôle les écarte (date invalide)
+// tant qu'elles ne sont pas remplacées. La version « TFT Unreal Version ?.?.?.? » n'est pas un critère :
+// l'API Riot la donne aussi pour toutes les parties récentes (constaté sur celles collectées depuis le 27/08/2026).
+const partieProvisoire = rec => !Number.isFinite(rec.t);
 export function partiesAEnrichir(db) {
   const ids = new Set();
   for (const r of db.prepare(`SELECT id, json FROM parties WHERE json LIKE '%"me":1%'`).all()) {
-    try { if (JSON.parse(r.json).b.some(b => b.me && b.g === undefined)) ids.add(r.id); } catch {}
+    try { const rec = JSON.parse(r.json); if (rec.b.some(b => b.me && b.g === undefined) || partieProvisoire(rec)) ids.add(r.id); } catch {}
   }
   return ids;
 }

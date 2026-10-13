@@ -85,6 +85,15 @@ function findGames(root) {
   return games;
 }
 
+// Partie à annoncer après un passage : celle apparue en tête de l'historique du client depuis le passage précédent,
+// même si la collecte l'a déjà enregistrée (elle passe tes parties en premier) ; sinon la plus récente que ce passage
+// vient d'ajouter. Au premier passage (derniere = null), seules les parties ajoutées comptent.
+export function aAnnoncer(tete, derniere, ajoutees) {
+  if (tete && derniere !== null && tete.id !== derniere) return tete;
+  return ajoutees.slice().sort((a, b) => b.t - a.t)[0] || null;
+}
+
+let derniere = null;   // partie classée en tête de l'historique au passage précédent
 async function poll(onNew, onGame) {
   const c = fromLockfile() || await fromProcess();
   if (!c) { lcuState.connecte = false; lcuState.note = 'Client LoL fermé'; return; }
@@ -100,14 +109,18 @@ async function poll(onNew, onGame) {
     if (games[0] && !fs.existsSync(SAMPLE)) { try { fs.writeFileSync(SAMPLE, JSON.stringify(games[0].raw, null, 1)); } catch {} }
     // Nouvelles parties classées : ajoutées tout de suite, sans attendre la prochaine collecte
     const db = ouvrir(), fresh = [];
+    let tete = null;
     for (const g of games) {
-      if (!g.id || !g.raw || !g.raw.json || partieConnue(db, g.id)) continue;
+      if (!g.id || !g.raw || !g.raw.json) continue;
       const m = { metadata: { match_id: g.id }, info: g.raw.json };
       const rec = compact(m, 'MOI', puuid);
       if (!rec) continue;
-      if (ajouterPartie(db, rec, joueursDe(m))) fresh.push(rec);
+      if (!tete || Number(rec.t) > Number(tete.t)) tete = rec;   // le client donne la date en texte
+      if (!partieConnue(db, g.id) && ajouterPartie(db, rec, joueursDe(m))) fresh.push(rec);
     }
-    if (fresh.length) onGame(fresh.sort((a, b) => b.t - a.t)[0]);
+    const annonce = aAnnoncer(tete, derniere, fresh);
+    if (tete) derniere = tete.id;
+    if (annonce) onGame(annonce);
     const lobby = readJ(LOBBY, {}), mine = readJ(MINE, {});
     let added = 0;
     for (const g of games) {

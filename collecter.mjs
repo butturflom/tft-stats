@@ -52,6 +52,21 @@ export async function refreshRank() {
   const puuid = await myPuuidFromEnv(riot, env);
   return puuid ? fetchRank(riot, puuid) : null;
 }
+// Pour l'application, après une partie : si elle n'est connue que par le client LoL (provisoire, voir
+// partiesAEnrichir), elle est remplacée tout de suite par celle de l'API. Renvoie true si elle a été remplacée.
+export async function completerPartie(id, { env = null, riot = null } = {}) {
+  const db = ouvrir();
+  if (!partiesAEnrichir(db).has(id)) return false;
+  env = env || loadEnv();
+  riot = riot || new Riot(env);
+  const puuid = await myPuuidFromEnv(riot, env);
+  if (!puuid) return false;
+  const m = await riot.regionGet(`/tft/match/v1/matches/${id}`);
+  const rec = compact(m, 'MOI', puuid);
+  if (!rec) return false;
+  remplacerPartie(db, rec, joueursDe(m));
+  return true;
+}
 
 const pidAlive = pid => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
 
@@ -141,7 +156,7 @@ async function run({ target, onProgress, shouldStop, log, env, riot }) {
         }
         if (!partieConnue(db, id)) ajouterJob(db, 'partie', id, PRIO.moi, { seed: 'MOI' });
       }
-      if (fixed) log(`${fixed} de tes parties complétées (or restant, dégâts).`);
+      if (fixed) log(`${fixed} de tes parties complétées depuis l'API (or restant, dégâts, ou date des parties vues par le client LoL).`);
     } else {
       log(`Riot ID « ${env.RIOT_ID} » introuvable : collecte sans tes parties.`);
     }

@@ -10,7 +10,7 @@ import crypto from 'node:crypto';
 import { exec, execFile, spawn } from 'node:child_process';
 import { ROOT, DATA, loadEnv, updateEnv, loadAugments, Riot } from './lib.mjs';
 import { startLcu, lcuState, currentPuuid } from './lcu.mjs';
-import { collect, refreshRank, myPuuidFromEnv } from './collecter.mjs';
+import { collect, refreshRank, completerPartie, myPuuidFromEnv } from './collecter.mjs';
 import { analyse } from './analyser.mjs';
 import { scoutLobby, scoutState, readLobby } from './scout.mjs';
 import { ouvrir, nombreParties, etatFile, rangsCibles, getMeta } from './db.mjs';
@@ -346,6 +346,8 @@ const server = http.createServer(async (req, res) => {
         const k = b.key.trim();
         if (!/^RGAPI-[0-9a-f-]{36}$/i.test(k)) return json(res, 400, { erreur: 'La clé doit ressembler à RGAPI-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx' });
         ch.RIOT_API_KEY = k; state.keyProblem = false; state.error = null;
+        // Nouvelle clé : l'accès à l'API spectateur est à revérifier, le repérage du lobby redevient possible
+        Object.assign(scoutState, { statut: 'idle', erreur: null, spectateur: null });
       }
       if (typeof b.riotId === 'string') {
         const r = b.riotId.trim();
@@ -438,8 +440,15 @@ server.listen(PORT, MOBILE ? '0.0.0.0' : LOCAL, async () => {
       // Fenêtre du récap : seulement pour une partie qui vient de se terminer, si l'option est active et la fenêtre fermée
       const recent = Date.now() - rec.t < 90 * 60000;
       quickAnalyse().then(() => { if (recent && settingsView().recapFenetre && clients.size === overlayClients.size) openWindow(); });
-      // Les LP sont mis à jour par Riot quelques secondes après la partie
-      setTimeout(() => refreshRank().then(r => { if (r) { log(`Rang : ${r.tier} ${r.div} ${r.lp} LP`); quickAnalyse(); } }).catch(() => {}), 90000);
+      // Les LP sont mis à jour par Riot quelques secondes après la partie. Si le client LoL l'a vue avant la collecte,
+      // elle n'est que provisoire (date en texte) : on la remplace par celle de l'API au même moment.
+      setTimeout(async () => {
+        const r = await refreshRank().catch(() => null);
+        if (r) log(`Rang : ${r.tier} ${r.div} ${r.lp} LP`);
+        const ok = settingsView().keyPresent && await completerPartie(rec.id).catch(() => false);
+        if (ok) log('Partie complétée depuis l\'API Riot (date, joueurs)');
+        if (r || ok) quickAnalyse();
+      }, 90000);
     },
     onStart: ({ gameId, puuid, puuids }) => {
       const s = settingsView();

@@ -7,7 +7,7 @@ import path from 'node:path';
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tft-collecte-'));
 process.env.TFT_DATA = dir;
-const { collect, PRIO } = await import('../collecter.mjs');
+const { collect, completerPartie, PRIO } = await import('../collecter.mjs');
 const D = await import('../db.mjs');
 after(() => { D.fermer(); fs.rmSync(dir, { recursive: true, force: true }); });
 
@@ -49,6 +49,7 @@ function fauxRiot({ casse = null } = {}) {
       if (m) return partiesDe(m[1]);
       m = p.match(/matches\/(EUW1_\w+)$/);
       if (m) return match(m[1]);
+      if (p.includes('/accounts/by-riot-id/')) return { puuid: 'moiz' };
       return null;
     },
   };
@@ -113,4 +114,22 @@ test('objectif atteint : la collecte s\'arrête et garde le reste en file', asyn
   const r = await collect({ target: 2, env: ENV, riot: fauxRiot(), log: silence });
   assert.equal(r.added, 2);
   assert.ok(r.file.joueur + r.file.partie + r.file.ligue > 0);
+});
+
+test('partie vue d\'abord par le client LoL : remplacée par celle de l\'API (date, joueurs)', async () => {
+  const db = D.ouvrir();
+  // Telle que le client LoL la donne : date en texte, version sans numéro, pas de liste de joueurs
+  D.ajouterPartie(db, { id: 'EUW1_moiz', t: String(MAINTENANT - 3600e3), v: 'TFT Unreal Version ?.?.?.?', set: 18, seed: 'MOI', b: [{ p: 1, lvl: 8, r: 30, g: 2, d: 50, e: 0, tr: [], u: [], me: 1 }] });
+  const riot = fauxRiot(), env = { ...ENV, RIOT_ID: 'Moi#EUW' };
+  assert.equal(await completerPartie('EUW1_moiz', { env, riot }), true);
+  const ligne = db.prepare('SELECT t, json FROM parties WHERE id = ?').get('EUW1_moiz'), j = JSON.parse(ligne.json);
+  assert.equal(j.t, MAINTENANT - 3600e3);
+  assert.equal(ligne.t, j.t);
+  assert.match(j.v, /16\.1/);
+  assert.equal(j.b.filter(b => b.me).length, 1);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM participants WHERE partie = ?').get('EUW1_moiz').n, 8);
+  // Déjà complète (cas où la collecte l'a eue avant le client) : aucune requête
+  const avant = riot.count;
+  assert.equal(await completerPartie('EUW1_moiz', { env, riot }), false);
+  assert.equal(riot.count, avant);
 });

@@ -40,7 +40,8 @@ Onglets
 - Mes compos     : les compos qui marchent dans tes lobbys, avec noyau, objets,
                    contestation, bascules et duels.
 - Lobby          : au début de chaque partie, ce que jouent les 7 autres joueurs
-                   et les carries contestés.
+                   et les carries contestés. Il faut une clé personnelle Riot : la clé
+                   de développement n'a pas accès à l'API spectateur (l'overlay le dit).
 - Synergies      : traits par palier et champions, effet de la contestation.
 - Augments       : noms et descriptions officiels en français (Data Dragon) et tes
                    stats d'augments. Riot ne publie pas les statistiques d'augments
@@ -49,7 +50,8 @@ Onglets
                    aussi de les lire.
 - Récap          : après chaque partie classée (client LoL ouvert), un récap
                    s'affiche avec ce qui a marché, ce qui a coûté des places,
-                   et la saisie de tes 3 augments.
+                   et la saisie de tes 3 augments. Il peut arriver quelques minutes
+                   après la fin, le temps que le client LoL et Riot publient la partie.
 - Mes parties    : tes résultats par compo (renseigne ton Riot ID dans Réglages).
 - Réglages       : clé, Riot ID, rangs (collecte et analyse), volumes, intervalle,
                    budget de requêtes, téléphone (même Wi-Fi, code PIN).

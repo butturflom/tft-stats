@@ -538,6 +538,8 @@ function ovUnit(c, big) {
     <span class="ovit">${(c.objets || []).slice(0, 3).map(itemPic).join('')}</span></div>`;
 }
 const ovRow = (lbl, html) => html ? `<div class="ovrow"><span class="ovlbl">${lbl}</span><div class="ovval">${html}</div></div>` : '';
+// Dernier repérage du lobby impossible faute d'accès à l'API spectateur (clé de développement) : relancer ne sert à rien
+const scoutBloque = () => { const sc = STATE && STATE.scout; return !!(sc && sc.statut === 'erreur' && sc.spectateur === false); };
 function ovPanel(s) {
   if (OVT === 'apercu') {
     const holders = s.plateau.filter(c => c.objets && c.objets.length).sort((a, b) => (b.id === s.carryId) - (a.id === s.carryId));
@@ -545,7 +547,7 @@ function ovPanel(s) {
     return `<div class="ovgrid"><div class="ovleft"><div class="ovboard">${boardHtml(s.plateau)}</div></div>
       <div class="ovright">
         ${ovRow('Carries', holders.slice(0, 3).map(c => { const u = uIdx(c.id) || { nom: c.id }; return `<div class="ovline"><span class="ovmini k${costOf(c.id)}" title="${esc(u.nom)}">${unitPic(u.nom, u.img)}</span><span class="ovarrow">›</span>${c.objets.map(itemPic).join('')}</div>`; }).join(''))}
-        ${ovRow('Lobby', !LOBBY ? '<span class="ovtxt muted">Pas encore repéré</span>' : contest ? `<span class="ovtxt warn">⚠ ${esc(contest.nom)} joué par ${contest.joueurs.length}</span>` : '<span class="ovtxt good">✓ Carry libre</span>')}
+        ${ovRow('Lobby', !LOBBY ? `<span class="ovtxt muted">${scoutBloque() ? 'Repérage indisponible avec ta clé' : 'Pas encore repéré'}</span>` : contest ? `<span class="ovtxt warn">⚠ ${esc(contest.nom)} joué par ${contest.joueurs.length}</span>` : '<span class="ovtxt good">✓ Carry libre</span>')}
       </div></div>`;
   }
   if (OVT === 'unites') return `<div class="ovstrip wrap">${s.plateau.slice().sort((a, b) => costOf(a.id) - costOf(b.id)).map(c => { const u = uIdx(c.id) || { nom: c.id }; return `<div class="ovcard">${ovUnit(c, true)}<span>${esc(u.nom)}</span></div>`; }).join('')}</div>`;
@@ -553,8 +555,11 @@ function ovPanel(s) {
     const holders = s.plateau.filter(c => c.objets && c.objets.length).sort((a, b) => (b.id === s.carryId) - (a.id === s.carryId));
     return holders.length ? holders.map(c => { const u = uIdx(c.id) || { nom: c.id }; return `<div class="ovlvrow"><span class="ovmini k${costOf(c.id)}">${unitPic(u.nom, u.img)}</span><div class="ovitems">${c.objets.map(id => `<span class="ovitem">${itemPic(id)}<span>${esc(iIdx(id).nom)}</span></span>`).join('')}</div></div>`; }).join('') : '<p class="muted">Pas d\'objets connus.</p>';
   }
-  const scout = STATE && STATE.scout;
-  return `${contestHtml(s.carryId, true)}<div class="row" style="margin-top:8px"><button type="button" class="ghost mini-btn" id="ovScan">${scout && scout.statut === 'en cours' ? 'Repérage en cours…' : 'Repérer mon lobby'}</button><a class="ghost mini-btn" href="/" target="_blank" rel="noopener">Vue complète</a></div>`;
+  const scout = STATE && STATE.scout, bloque = scoutBloque();
+  // Échec du dernier repérage : la raison s'affiche ici, et le bouton disparaît s'il ne peut pas marcher avec cette clé
+  const err = scout && scout.statut === 'erreur' ? `<p class="ovtxt warn" style="margin:6px 0 0">${bloque ? 'Repérage indisponible : ta clé de développement n\'a pas accès à l\'API spectateur, et le client LoL ne donne pas les joueurs. Il faut une clé personnelle Riot.' : esc(scout.erreur || 'Repérage impossible')}</p>` : '';
+  const btn = bloque ? '' : `<button type="button" class="ghost mini-btn" id="ovScan">${scout && scout.statut === 'en cours' ? 'Repérage en cours…' : scout && scout.statut === 'erreur' ? 'Réessayer' : 'Repérer mon lobby'}</button>`;
+  return `${contestHtml(s.carryId, true)}${err}<div class="row" style="margin-top:8px">${btn}<a class="ghost mini-btn" href="/" target="_blank" rel="noopener">Vue complète</a></div>`;
 }
 let OVPICK = false;
 const OV_W = 480;

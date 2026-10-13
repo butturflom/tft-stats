@@ -111,3 +111,14 @@ test('migration : parties.jsonl importé une fois, renommé, puis export', () =>
   assert.equal(fs.readFileSync(out, 'utf8').trim().split('\n').length, 3);
   D.fermer(f);
 });
+
+test('tes parties à recharger depuis l\'API : sans or restant, ou vues seulement par le client LoL', () => {
+  const moi = (id, extra = {}) => ({ ...rec(id), seed: 'MOI', b: [{ p: 1, g: 3, me: 1 }], ...extra });
+  D.ajouterPartie(db, moi('EUW1_m1'));                                                          // complète (API)
+  D.ajouterPartie(db, moi('EUW1_m2', { b: [{ p: 2, me: 1 }] }));                                 // ancienne, sans or restant
+  D.ajouterPartie(db, moi('EUW1_m3', { t: '1791920509659', v: 'TFT Unreal Version ?.?.?.?' }));  // client LoL
+  D.ajouterPartie(db, moi('EUW1_m4', { v: 'TFT Unreal Version ?.?.?.?' }));                      // API récente : complète
+  D.ajouterPartie(db, rec('EUW1_autre'));                                                       // partie d'un autre joueur
+  assert.deepEqual([...D.partiesAEnrichir(db)].sort(), ['EUW1_m2', 'EUW1_m3']);
+  assert.equal(db.prepare('SELECT t FROM parties WHERE id = ?').get('EUW1_m3').t, null);   // date en texte : colonne vide
+});
