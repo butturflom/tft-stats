@@ -101,14 +101,14 @@ Incrémenter `format` à chaque changement de structure.
 9. **Dépendance à Data Dragon.** Noms, icônes et augments viennent de `ddragon.leagueoflegends.com`, au premier lancement ou quand le cache manque. Sans accès, les augments restent vides : `/api/augments` renvoie alors `{ version: null, augments: {} }`, sans erreur.
 10. **Valeurs en dur.** Le lockfile LoL n'est cherché que dans `C:\` et `D:\` (`lcu.mjs`). L'interface et les messages sont uniquement en français.
 11. **Tests.** `npm test` couvre seulement l'hygiène du dépôt et `compact()`. Ni l'analyse ni l'interface ne sont testées automatiquement. Un contrôle navigateur ponctuel (onglets, overlay, routes API) a été fait le 13/10, hors dépôt : aucune erreur JavaScript. Ce contrôle tournait sans accès à Data Dragon.
-12. **Métadonnées du dépôt.** Dépôt git créé en phase 0, avec `package.json`, `LICENSE`, `README.md` et `.env.example`. Pas encore de remote.
+12. **Métadonnées du dépôt.** Dépôt git créé en phase 0, avec `package.json`, `LICENSE`, `README.md` et `.env.example`. Remote GitHub configuré (`origin`).
 
 ## 6. Trajectoire proposée
 
 **Principe** : faire évoluer le code existant, sans le réécrire. L'application fonctionne, elle a déjà 4 900 parties et une logique métier riche (compos, objets, rang, lobby, récap). Une réécriture en Electron ou TypeScript ne résoudrait pas les vrais problèmes (échantillonnage, validation, stockage).
 
 **Phase 0 : hygiène du dépôt** (avant toute publication) — **faite le 13/10/2026**
-- Dépôt git local, branche `main`, un premier commit. Publication GitHub (dépôt public) : pas encore faite.
+- Dépôt public : https://github.com/butturflom/tft-stats (branche `main`, publié le 13/10/2026).
 - `package.json` sans dépendance d'exécution : `npm start`, `npm run collecte`, `npm run analyse`, `npm run lint`, `npm test`.
 - `LICENSE` (AGPL-3.0-or-later), `README.md` en anglais (`LISEZMOI.txt` reste en français), `.env.example` sans valeurs secrètes.
 - `.gitignore` : `.env`, `data/` et caches exclus. Vérifié : aucune clé `RGAPI-` dans les fichiers suivis.
