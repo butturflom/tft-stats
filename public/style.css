@@ -242,6 +242,10 @@ td.augcell{min-width:180px}
 .ov{--hc:#2de2ff;--hm:#ff4fd8;--hbg:#060a12;--hl:rgba(45,226,255,.2);--hd:#7e8aa4;--cut:14px}
 .ov .top,.ov #banner,.ov .tabs{display:none!important}
 .ov body{background:#05070c;font-size:13px}
+/* Overlay sous Electron : fenêtre transparente détourée par le panneau ; l'en-tête déplace la fenêtre */
+.ov.electron,.ov.electron body{background:transparent}
+.ov.electron .ovtop{-webkit-app-region:drag}
+.ov.electron .ovtop button{-webkit-app-region:no-drag}
 .ov .wrap{padding:4px;max-width:none}
 a.ghost{display:inline-block;text-decoration:none;color:inherit}
 .hud{--chamf:polygon(var(--cut) 0,100% 0,100% calc(100% - var(--cut)),calc(100% - var(--cut)) 100%,0 100%,0 var(--cut));

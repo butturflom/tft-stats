@@ -1,6 +1,6 @@
 # TFT Stats : architecture
 
-Document de référence. Les parties 1 à 5 décrivent l'état **réel** du code, constaté le 13/10/2026 après la phase 2 (SQLite, ladder complet). La partie 6 propose la trajectoire, la partie 7 liste les décisions, la partie 8 fixe le périmètre des données.
+Document de référence. Les parties 1 à 5 décrivent l'état **réel** du code, constaté le 13/10/2026 après la phase 3 (coque Electron). La partie 6 propose la trajectoire, la partie 7 liste les décisions, la partie 8 fixe le périmètre des données.
 
 ---
 
@@ -9,20 +9,22 @@ Document de référence. Les parties 1 à 5 décrivent l'état **réel** du code
 Application locale pour Windows. Elle collecte les parties classées TFT (EUW) via l'API Riot, calcule des statistiques par composition et les affiche dans un tableau de bord et un overlay au-dessus du jeu.
 
 - **Périmètre des données** : API Riot et Data Dragon uniquement (voir §8).
-- **Runtime** : Node.js 22.13 ou plus (ESM, module intégré `node:sqlite`), **sans dépendance npm** (`package.json` sans dépendance).
+- **Runtime** : Node.js 22.13 ou plus (ESM, module intégré `node:sqlite`). Le cœur n'a **aucune dépendance npm** ; Electron, facultatif, est la seule dépendance, de développement (`devDependencies`).
 - **Serveur HTTP local** : `127.0.0.1:3777`.
 - **Interface** : HTML, CSS et JavaScript sans framework (`public/`).
-- **Overlay** : fenêtre Edge en mode application (`msedge --app=…?overlay=1`), pilotée par `overlay-helper.ps1` (Win32 : premier plan, transparence, forme, déplacement).
+- **Fenêtres** : avec Electron (phase 3), le tableau de bord et l'overlay sont des fenêtres Electron (`electron/main.mjs`). Sans Electron : fenêtre Edge en mode application (`msedge --app=…`), et overlay piloté par `overlay-helper.ps1` (Win32 : premier plan, transparence, forme, déplacement).
 - **Stockage** : base SQLite `data/tft.db` (parties, joueurs des parties, rangs relevés, file de jobs, budget de requêtes), plus des fichiers JSON dans `data/` (statistiques, réglages de l'appli, caches).
 - **Limiteur Riot** : 19 requêtes/s et 98 requêtes/2 min, valeurs de clé de développement codées dans `lib.mjs`.
-- **Lancement** : `TFT Stats.vbs` (avec fenêtre), `TFT Stats (fond).vbs` (démarrage Windows), raccourci créé par `creer-raccourci.bat`.
+- **Lancement** : `TFT Stats.vbs` (avec fenêtre), `TFT Stats (fond).vbs` (démarrage Windows), raccourci créé par `creer-raccourci.bat`. Les deux `.vbs` lancent Electron s'il est installé (`installer-electron.bat`), sinon Node et Edge.
 - **Licence** : AGPL-3.0-or-later (fichier `LICENSE` présent depuis la phase 0, voir §7).
 
 ## 2. Modules
 
 | Fichier | Rôle | Lit | Écrit |
 |---|---|---|---|
-| `app.mjs` | Serveur HTTP, orchestrateur (cycles de collecte, minuteur auto), overlay, accès téléphone (PIN) | `.env`, `data/stats.json`, `data/app-etat.json` | `data/app-etat.json`, `data/app.log`, `data/sessions.json` |
+| `app.mjs` | Serveur HTTP, orchestrateur (cycles de collecte, minuteur auto), fenêtres (Edge et `overlay-helper.ps1`, ou messages à Electron), accès téléphone (PIN) | `.env`, `data/stats.json`, `data/app-etat.json` | `data/app-etat.json`, `data/app.log`, `data/sessions.json` |
+| `electron/main.mjs` | Coque Electron (phase 3) : lance `app.mjs` dans un processus enfant, ouvre le tableau de bord et l'overlay quand le serveur le demande, une seule instance, reprise d'une instance lancée sans Electron | messages du serveur (IPC) | `data/app.log` |
+| `electron/outils.mjs` | Fonctions de la coque sans Electron : icône (PNG de l'hexagone), position de l'overlay sur un écran visible, tri des liens, transparence | | |
 | `lib.mjs` | Lecture de `.env`, `Limiter`, client `Riot`, noms et augments (Data Dragon) | `.env`, caches | `data/noms.json`, `data/augments-fr.json` |
 | `collecter.mjs` | Lit le classement des rangs choisis (Challenger, GM, Master, puis divisions paginées), récupère les parties des joueurs via la file de jobs, compacte, historise ton rang | API Riot, `tft.db` | `tft.db`, `data/rang.jsonl`, `data/collecte.lock` |
 | `db.mjs` | Base SQLite : parties, participants, rangs relevés, rang de chaque partie au moment où elle a été jouée, file de jobs, budget horaire, import de l'ancien `parties.jsonl`, export | `data/parties.jsonl` (une fois) | `data/tft.db` |
@@ -30,11 +32,12 @@ Application locale pour Windows. Elle collecte les parties classées TFT (EUW) v
 | `valider.mjs` | Contrôle chaque partie (schéma, places, doublons, joueur marqué) et le contrôle global de place moyenne (4,5) | parties brutes | rien : fonctions appelées par `analyser.mjs` |
 | `lcu.mjs` | Lit le client LoL local (lockfile) : partie en cours, augments, lobby | client LoL (local) | `tft.db` (tes nouvelles parties), `data/augments-lobby.json`, `data/mes-augments.json`, `data/client-partie.json` |
 | `scout.mjs` | Repère les autres joueurs d'une partie (API spectateur) | API Riot | `data/lobby.json`, `tft.db` (parties et rangs des joueurs du lobby) |
-| `overlay-helper.ps1` | Pilote la fenêtre de l'overlay | commandes sur l'entrée standard | |
+| `overlay-helper.ps1` | Pilote la fenêtre de l'overlay, sans Electron | commandes sur l'entrée standard | |
+| `installer-electron.bat` | Installe Electron : `npm install`, puis téléchargement de son exécutable (≈ 160 Mo) | | `node_modules/` |
 | `public/` | Tableau de bord et overlay (`app.js`, `index.html`, `style.css`) | `/api/*` | |
 | `scripts/verifier-syntaxe.mjs` | Vérifie la syntaxe de tous les fichiers JavaScript (`npm run lint`) | sources | |
 | `scripts/exporter.mjs` | Exporte les parties en JSON Lines (`npm run export`) | `tft.db` | `data/export-parties.jsonl` |
-| `tests/` | Tests (`npm test`) : hygiène du dépôt, `compact()`, `valider.mjs`, analyse de bout en bout, base SQLite, collecte avec un faux client Riot | sources | dossiers temporaires |
+| `tests/` | Tests (`npm test`) : hygiène du dépôt, `compact()`, `valider.mjs`, analyse de bout en bout, base SQLite, collecte avec un faux client Riot, coque Electron (fonctions, dialogue entre le serveur et Electron) | sources | dossiers temporaires |
 
 **Fichiers inutilisés, déplacés le 13/10/2026 dans `data/sauvegarde-phase0/`** : `overlay.ps1` (aucune référence dans le code), `data/analyser-test.mjs` (copie de l'analyseur, pas un test), `data/stats-test.json`, `.maj/` (dossier vide). `data/app.log` reste en place : journal historique, ignoré par git, avec d'anciennes mentions de sites tiers que le code n'utilise plus.
 
@@ -61,9 +64,21 @@ API Riot (europe / euw1)            Client LoL local (lockfile)        Data Drag
   data/stats.json (format 9) + data/qualite.json
         │
         ▼
-  app.mjs : HTTP 127.0.0.1:3777, orchestrateur, overlay, accès téléphone
-        ├── public/ (tableau de bord)
-        └── overlay : Edge --app + overlay-helper.ps1
+  app.mjs : HTTP 127.0.0.1:3777, orchestrateur, accès téléphone
+        ├── public/ (tableau de bord et overlay)
+        └── fenêtres : Electron (messages IPC, ci-dessous)
+                       ou, sans Electron, Edge --app + overlay-helper.ps1
+```
+
+Sous Electron (phase 3) :
+
+```
+electron/main.mjs (processus principal, une seule instance)
+   ├── fork ──► app.mjs (Node d'Electron, ELECTRON_RUN_AS_NODE=1, TFT_ELECTRON=1)
+   │              └── messages IPC : pret, fenetre, overlay, alpha, taille, forme, fermer, deja-lance
+   ├── BrowserWindow « TFT Stats »   ──► http://127.0.0.1:3777/
+   └── BrowserWindow « TFT Overlay » ──► http://127.0.0.1:3777/?overlay=1&electron=1
+                                         (transparente, au premier plan, déplacée par son en-tête)
 ```
 
 ## 4. Contrats de données
@@ -110,6 +125,25 @@ Format 9 (13/10/2026) : lecture depuis `tft.db`. `rangs` compte les parties par 
 
 Incrémenter `format` à chaque changement de structure.
 
+### Messages entre le serveur et Electron (IPC, phase 3)
+
+`app.mjs` passe en mode Electron quand `TFT_ELECTRON=1` et qu'un canal IPC existe (`process.send`). Tailles et positions en pixels CSS, qu'Electron prend en pixels indépendants de l'écran.
+
+| Sens | Message | Effet |
+|---|---|---|
+| serveur → Electron | `pret {url}` | le serveur écoute ; Electron garde son adresse |
+| | `fenetre` | ouvre le tableau de bord, ou le met au premier plan |
+| | `overlay {x, y, largeur, hauteur, alpha, forme}` | ouvre l'overlay (valeurs de `.env`), ou le montre s'il est ouvert |
+| | `alpha {alpha}` | transparence de 90 à 255 (`OVERLAY_ALPHA`) |
+| | `taille {largeur, hauteur}` | taille demandée par la page pour coller au panneau |
+| | `forme {forme}` | « détouré » changé : l'overlay est refait avec ou sans barre de titre |
+| | `fermer` | ferme l'overlay |
+| | `deja-lance {url}` | le port est pris ; le serveur s'arrête et Electron propose de fermer l'autre instance |
+| Electron → serveur | `position {x, y}` | l'overlay a été déplacé : `OVERLAY_X` et `OVERLAY_Y` dans `.env` |
+| | fin du canal | Electron s'est fermé : le serveur s'arrête aussi |
+
+Sous Electron, `/api/overlay` accepte toujours `forme` et `bouger` mais ne les transmet pas : la forme vient du panneau (fenêtre transparente) et le déplacement de l'en-tête (`-webkit-app-region: drag`).
+
 ## 5. Points de vigilance (constatés dans le code)
 
 1. **Couverture du ladder (phase 2).** La collecte lit le classement complet des rangs choisis (`RANGS`, vide ou `TOUS` = de Fer IV à Challenger) : endpoints `challenger`, `grandmaster`, `master`, puis `entries/{tier}/{division}` page par page jusqu'à une page vide. Chaque joueur donne au plus 4 nouvelles parties par passage (14 derniers jours). Avec une clé de développement, lire tout le ladder prend plusieurs jours : la file de jobs (`tft.db`) répartit le travail et reprend après un arrêt. Priorités : tes parties (100), première page de chaque division (60), parties (50), joueurs (30, ordre aléatoire pour mélanger les rangs), pages suivantes (20). Classement relu au plus une fois par jour, joueurs toutes les 12 h.
@@ -121,9 +155,18 @@ Incrémenter `format` à chaque changement de structure.
 7. **Mode téléphone** (`MOBILE=1`, désactivé par défaut). Le serveur parle HTTP en clair sur le réseau local. Le PIN fait 4 à 8 chiffres et le cookie n'a pas l'attribut `Secure`. Acceptable en usage domestique, à documenter, à ne jamais exposer hors du réseau local.
 8. **Périmètre des données.** Riot API et Data Dragon sont les seules sources. Le code ne contient plus aucun appel à un site tiers (recherche faite le 13/10 dans tout le dépôt). Les fonctions qui en dépendaient ont été retirées (§8).
 9. **Dépendance à Data Dragon.** Noms, icônes et augments viennent de `ddragon.leagueoflegends.com`, au premier lancement ou quand le cache manque. Sans accès, les augments restent vides : `/api/augments` renvoie alors `{ version: null, augments: {} }`, sans erreur.
-10. **Valeurs en dur.** Le lockfile LoL n'est cherché que dans `C:\` et `D:\` (`lcu.mjs`). L'interface et les messages sont uniquement en français.
-11. **Tests.** `npm test` couvre l'hygiène du dépôt, `compact()`, les contrôles de `valider.mjs`, l'analyse de bout en bout (import, filtre de rang) sur des données synthétiques, la base SQLite (rangs, file de jobs, budget, migration) et la collecte avec un faux client Riot (pagination, reprise, clé refusée, objectif atteint). L'interface n'est pas testée automatiquement. Un contrôle navigateur ponctuel (onglets, overlay, routes API) a été fait le 13/10, hors dépôt : aucune erreur JavaScript. Ce contrôle tournait sans accès à Data Dragon.
+10. **Valeurs en dur.** Le lockfile LoL n'est cherché que dans `C:\` et `D:\` (`lcu.mjs`). Le port est 3777 (`TFT_PORT` ne sert qu'aux tests). L'interface et les messages sont uniquement en français.
+11. **Tests.** `npm test` couvre l'hygiène du dépôt (dont l'absence de dépendance d'exécution), `compact()`, les contrôles de `valider.mjs`, l'analyse de bout en bout (import, filtre de rang) sur des données synthétiques, la base SQLite (rangs, file de jobs, budget, migration), la collecte avec un faux client Riot (pagination, reprise, clé refusée, objectif atteint) et la coque Electron : fonctions de `electron/outils.mjs`, et dialogue entre le serveur et Electron (`app.mjs` lancé avec un faux `.env`, un dossier temporaire et un port libre). Les fenêtres elles-mêmes ne sont pas testées automatiquement. Un contrôle navigateur ponctuel (onglets, overlay, routes API) a été fait le 13/10, hors dépôt, sans accès à Data Dragon : aucune erreur JavaScript. Un essai réel d'Electron a été fait le 13/10 sur une copie isolée (port 3790, copie de tes 5 300 parties, importées sans perte) : voir le point 13.
 12. **Métadonnées du dépôt.** Dépôt git créé en phase 0, avec `package.json`, `LICENSE`, `README.md` et `.env.example`. Remote GitHub configuré (`origin`).
+13. **Electron (phase 3).**
+    - **Facultatif.** Sans `node_modules\electron\dist\electron.exe`, les lanceurs utilisent Node et Edge comme avant. Electron 44 ne télécharge plus son exécutable pendant `npm install` : `installer-electron.bat` lance aussi `install-electron` (≈ 160 Mo).
+    - **Node utilisé.** Sous Electron, le serveur tourne sur le Node intégré à Electron (24.21 avec Electron 44.7, `node:sqlite` présent), dans un processus à part : l'analyse (plusieurs secondes de calcul) ne bloque pas les fenêtres. `npm start` et les tests utilisent le Node installé sur le PC.
+    - **Lanceurs.** Les `.vbs` lancent Electron avec le style de fenêtre 1. Avec le style 0 (celui de `node app.mjs`), Windows applique « caché » à la première fenêtre d'Electron : le tableau de bord ne s'affiche pas (constaté le 13/10).
+    - **Overlay.** Fenêtre transparente sans cadre, au premier plan (niveau `screen-saver`), affichée sans prendre le focus (vérifié, y compris quand l'overlay est la première fenêtre ouverte). La page la règle à la hauteur du panneau, plus 4 px de marge : la partie transparente (marge, coins coupés) ne laisse pas passer les clics vers le jeu. `setIgnoreMouseEvents` n'est donc pas utilisé. La taille passe par `setBounds` : sous Windows, `setSize` est sans effet sur une fenêtre non redimensionnable (taille minimale = maximale, constaté le 13/10). Une position enregistrée hors des écrans (écran débranché) est remplacée par le coin haut-gauche de l'écran principal.
+    - **Déplacement.** Par l'en-tête (`-webkit-app-region: drag`), les boutons restent cliquables : vérifié avec `WM_NCHITTEST` (en-tête et espaces entre les boutons = barre de titre, boutons = zone cliente). La position est enregistrée à la fin du déplacement.
+    - **Instances.** Une seule instance d'Electron ; un deuxième lancement met le tableau de bord au premier plan. Si une instance lancée sans Electron occupe le port, Electron propose de la fermer (`/api/quitter`) puis relance son serveur (vérifié le 13/10).
+    - **Profil.** Electron garde son cache et le `localStorage` de l'interface (thème, onglet, vue réduite de l'overlay) dans `%APPDATA%\tft-stats`, à part d'Edge : ces choix reviennent aux valeurs par défaut au premier lancement sous Electron.
+    - **Pas encore vérifié avec le jeu ouvert.** Comme avec Edge, le plein écran exclusif cache l'overlay : mode « Fenêtré sans bordure » nécessaire.
 
 ## 6. Trajectoire proposée
 
@@ -156,10 +199,15 @@ Incrémenter `format` à chaque changement de structure.
 - Ordre de grandeur, d'après la dernière collecte observée (200 parties en 6,1 min, 343 requêtes) : ≈ 2 000 parties par heure. 10 000 parties ≈ 5 h de collecte, 50 000 ≈ 25 h, réparties sur plusieurs jours.
 - Pas encore fait : choix des rangs analysés séparé des rangs collectés, filtre par patch dans l'interface, analyse filtrée en SQL (§5, point 3).
 
-**Phase 3 : Electron (optionnel)**
-- Une couche fine : Electron démarre le serveur, puis ouvre le tableau de bord et l'overlay dans des `BrowserWindow` (`alwaysOnTop`, `transparent`, `setIgnoreMouseEvents`). Remplace Edge et PowerShell.
-- Le cœur (`collecter`, `analyser`, `valider`) ne change pas.
+**Phase 3 : coque Electron (facultative)** — **faite le 13/10/2026**
+- Une couche fine : `electron/main.mjs` lance `app.mjs` dans un processus enfant, puis ouvre le tableau de bord et l'overlay dans des `BrowserWindow` quand le serveur le demande (messages IPC, §4). Sous Electron, Edge et `overlay-helper.ps1` ne servent plus ; ils restent pour qui n'installe pas Electron.
+- Overlay : `alwaysOnTop` (niveau `screen-saver`), `transparent`, sans cadre, affiché sans voler le focus au jeu. La forme vient du panneau, l'en-tête déplace la fenêtre, la position est gardée. « Overlay détouré » décoché : fenêtre avec barre de titre. `setIgnoreMouseEvents` n'a pas été retenu : la fenêtre colle au panneau (§5, point 13).
+- Une seule instance. Fermer les fenêtres ne coupe pas l'application, « Quitter l'application » ferme tout. Si une instance lancée sans Electron tourne déjà, Electron propose de la fermer puis prend le relais.
+- Le cœur (`collecter`, `analyser`, `valider`, `db`) ne change pas. `app.mjs` gagne un pilote de fenêtres (Edge ou Electron), `lib.mjs` lit `TFT_ENV` et `app.mjs` lit `TFT_PORT`, pour les tests.
+- Electron reste facultatif : seule dépendance du projet, en dépendance de développement (`electron@^44.7.0`, `package-lock.json`), installée par `installer-electron.bat`. Sans lui, tout fonctionne comme avant.
+- Vérifié : 39 tests, dont le dialogue entre le serveur et Electron. Essai réel sur une copie isolée : migration SQLite de 5 300 parties sans perte, analyse publiée (5 126 parties retenues, contrôle de qualité ok), tableau de bord et overlay sous Electron, réglages de l'overlay, mode arrière-plan, deuxième lancement, reprise d'une instance sans Electron, sortie (§5, point 13).
 - Reste Windows seulement : lockfile LoL, overlay au-dessus du jeu.
+- Pas encore fait : essai avec le jeu ouvert ; paquet installable (electron-builder) ; icône dans la zone de notification.
 
 **Phase 4 : couche LLM (optionnelle, BYOK)**
 - Ne reçoit que des statistiques validées (`stats.json`, section `qualite` incluse) et rédige l'explication en français.
@@ -172,7 +220,7 @@ Incrémenter `format` à chaque changement de structure.
 
 **Tranchées**
 - **Licence** : AGPL-3.0-or-later (choix de l'utilisateur, 13/10/2026). `LICENSE` ajouté en phase 0. La licence couvre le code, pas les données Riot ni celles de Data Dragon.
-- **Electron** : phase 3, plus tard, comme recommandé. Le cœur reste en Node, sans réécriture.
+- **Electron** : phase 3, faite le 13/10/2026, en coque facultative (dépendance de développement). Le cœur reste en Node, sans réécriture ni dépendance.
 - **Dashboard et overlay dans la même application.**
 - **Cible : le ladder complet, avec filtres** (rangs, patch, set). Collecte du ladder complet et filtre par rang faits en phase 2 (§5, points 1 et 2).
 - **Sources de données : Riot API et Data Dragon uniquement** (décision du 13/10/2026). Tout autre site est retiré du code et des données (§8).
@@ -216,7 +264,9 @@ Incrémenter `format` à chaque changement de structure.
 
 ## 9. Commandes
 
-- `npm start` (ou `node app.mjs`) : lance l'application (serveur et interface).
+- `npm start` (ou `node app.mjs`) : lance l'application (serveur et interface), dans Edge.
+- `npm run electron` (ou `electron .`, `--fond` pour l'arrière-plan) : lance l'application dans les fenêtres d'Electron. Installation : `installer-electron.bat`, ou `npm install` puis `npx install-electron`.
 - `npm run collecte` (ou `node collecter.mjs --parties=800`) : collecte en ligne de commande, puis analyse.
 - `npm run analyse` (ou `node analyser.mjs [--tous]`) : analyse seule (`--tous` pour tous les patchs).
 - `npm run lint` : vérifie la syntaxe. `npm test` : lance les tests.
+- Variables pour les tests et les essais : `TFT_DATA` (dossier de données), `TFT_ENV` (fichier `.env`), `TFT_PORT` (port), `TFT_RANGS` (rangs analysés), `NO_OPEN=1` (aucune fenêtre). `TFT_ELECTRON=1` est posée par Electron pour son serveur.

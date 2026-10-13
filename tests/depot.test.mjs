@@ -54,6 +54,13 @@ test('la licence est le texte AGPL-3.0', () => {
   assert.match(texte, /Version 3, 19 November 2007/);
 });
 
+test('aucune dépendance npm d\'exécution : Electron, facultatif, est une dépendance de développement', () => {
+  const pkg = JSON.parse(lire(path.join(racine, 'package.json')));
+  assert.equal(pkg.dependencies, undefined);
+  assert.deepEqual(Object.keys(pkg.devDependencies || {}), ['electron']);
+  assert.ok(fs.existsSync(path.join(racine, pkg.main)), 'le point d\'entrée Electron existe');
+});
+
 test('le README contient la mention légale Riot', () => {
   const readme = lire(path.join(racine, 'README.md'));
   assert.match(readme, /isn't endorsed by Riot Games/);

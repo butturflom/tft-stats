@@ -9,9 +9,12 @@ fs.mkdirSync(DATA, { recursive: true });
 
 export const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+// Fichier .env à côté des scripts (TFT_ENV : autre fichier, pour les tests)
+const envFile = () => process.env.TFT_ENV || path.join(ROOT, '.env');
+
 // Modifie ou ajoute des lignes CLE=valeur dans .env en gardant les commentaires.
 export function updateEnv(changes) {
-  const file = path.join(ROOT, '.env');
+  const file = envFile();
   const lines = fs.existsSync(file) ? fs.readFileSync(file, 'utf8').replace(/^﻿/, '').split(/\r?\n/) : [];
   const done = new Set();
   const out = lines.map(l => {
@@ -25,7 +28,7 @@ export function updateEnv(changes) {
 }
 
 export function loadEnv() {
-  const file = path.join(ROOT, '.env');
+  const file = envFile();
   if (!fs.existsSync(file)) throw new Error('Fichier .env introuvable à côté du script.');
   const env = {};
   for (const raw of fs.readFileSync(file, 'utf8').replace(/^﻿/, '').split(/\r?\n/)) {

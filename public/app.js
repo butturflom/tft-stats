@@ -477,6 +477,8 @@ function maybeRecap() {
 
 // ---- Compo suivie (overlay et téléphone) ----
 const OV = new URLSearchParams(location.search).has('overlay');
+// Overlay ouvert par Electron : fenêtre transparente (la forme vient du panneau), déplacée par son en-tête sans passer par le serveur
+const OVE = OV && new URLSearchParams(location.search).has('electron');
 // Overlay : vue réduite (plateau seul) ou complète, et niveau de transparence de la fenêtre
 const ALPHAS = [130, 170, 210, 245];
 let OVC = false;
@@ -610,7 +612,7 @@ function ovWire(el) {
   const c = $('#ovClose');
   if (c) c.onclick = () => { api('/api/overlay', { fermer: true }).catch(() => {}); setTimeout(() => { try { window.close(); } catch {} }, 400); };
   const d = $('#ovDrag');
-  if (d) d.onpointerdown = e => {
+  if (d && !OVE) d.onpointerdown = e => {
     if (e.button !== 0 || e.target.closest('button')) return;
     const dpr = window.devicePixelRatio || 1, g = { sx: e.screenX, sy: e.screenY, busy: true, next: null, moved: false };
     d.setPointerCapture(e.pointerId); d.classList.add('drag'); OVDRAG = true;
@@ -638,8 +640,10 @@ function ovFit() {
     const box = document.querySelector('#tab-overlay > .hud'); if (!box) return;
     const chrome = Math.max(0, window.outerHeight - window.innerHeight);
     const max = (screen.availHeight || 900) - 80;
-    const h = Math.min(max, Math.ceil(box.getBoundingClientRect().bottom) + 14 + chrome);
-    if (Math.abs(h - window.outerHeight) < 10 && Math.abs(OV_W - window.outerWidth) < 10) { ovWant = h; return; }
+    // Sous Electron, la fenêtre colle au panneau : sa partie transparente ne laisse pas passer les clics vers le jeu
+    const marge = OVE ? 4 : 14, ecart = OVE ? 2 : 10;
+    const h = Math.min(max, Math.ceil(box.getBoundingClientRect().bottom) + marge + chrome);
+    if (Math.abs(h - window.outerHeight) < ecart && Math.abs(OV_W - window.outerWidth) < ecart) { ovWant = h; return; }
     if (h !== ovWant) { ovWant = h; ovTries = 0; }
     if (ovTries >= 3) return;
     ovTries++;
@@ -655,7 +659,7 @@ function vpOrigin() {
   return { x: window.screenX + b, y: window.screenY + Math.max(0, window.outerHeight - window.innerHeight - b) };
 }
 function ovShape() {
-  if (!OV) return;
+  if (!OV || OVE) return;
   clearTimeout(ovShapeT);
   ovShapeT = setTimeout(() => {
     if (OVDRAG || (STATE && STATE.settings && STATE.settings.overlayForme === false)) return;
@@ -802,7 +806,7 @@ async function loadStats() {
 }
 
 (async function boot() {
-  if (OV) { TAB = 'overlay'; document.documentElement.classList.add('ov'); applyTheme('dark'); document.documentElement.classList.toggle('compact', OVC); document.title = 'TFT Overlay'; }
+  if (OV) { TAB = 'overlay'; document.documentElement.classList.add('ov'); document.documentElement.classList.toggle('electron', OVE); applyTheme('dark'); document.documentElement.classList.toggle('compact', OVC); document.title = 'TFT Overlay'; }
   await loadLobby(); lobbyVer = LOBBY && LOBBY.t;
   try { STATE = await api('/api/etat'); } catch {}
   statsVer = STATE && STATE.statsVersion;

@@ -8,7 +8,7 @@ Personal statistics for Teamfight Tactics (TFT) ranked games, built on the offic
 
 - Collects ranked EUW matches through the Riot API, from the full ladder (Iron to Challenger) or the ranks you choose, and keeps them in a local SQLite database. Collection runs from a persistent job queue: it resumes where it stopped and respects an hourly request budget.
 - Computes statistics per composition from the collected games: average placement, contestation, carries, items, traits and units. Games are filtered by the rank they were played at, taken from rank snapshots of the players.
-- Shows a dashboard, and an overlay with the composition you follow.
+- Shows a dashboard, and an overlay with the composition you follow. Both open in Microsoft Edge, or in their own windows with the optional Electron desktop shell, where the overlay is a transparent, always-on-top window that does not take focus from the game.
 - When the League client is open on your PC, reads your augments and the current game from its local lockfile, and shows a recap after each ranked game.
 
 ## Requirements
@@ -16,6 +16,7 @@ Personal statistics for Teamfight Tactics (TFT) ranked games, built on the offic
 - Windows 10 or 11
 - [Node.js](https://nodejs.org) 22.13 or newer (for the built-in `node:sqlite` module)
 - A Riot API key from the [Riot Developer Portal](https://developer.riotgames.com). Development keys expire after 24 hours.
+- Optional: [Electron](https://www.electronjs.org), for the desktop windows. It is the only dependency, a development one: the app itself has none.
 
 ## Quick start
 
@@ -25,11 +26,16 @@ Personal statistics for Teamfight Tactics (TFT) ranked games, built on the offic
 
 On Windows, `TFT Stats.vbs` starts the app without a console window. The user guide, in French, is [`LISEZMOI.txt`](LISEZMOI.txt).
 
+### Desktop windows (optional)
+
+Run `installer-electron.bat`, or `npm install` then `npx install-electron` (about 160 MB to download, once). Then `npm run electron` starts the app in Electron windows, and `TFT Stats.vbs` uses Electron when it is installed, Microsoft Edge otherwise. The server keeps running when you close the windows. To stop it, use **Quitter l'application** in the **Réglages** tab.
+
 ## Scripts
 
 | Command | What it does |
 |---|---|
 | `npm start` | Starts the app (server and dashboard) |
+| `npm run electron` | Starts the app in Electron windows (after `npm install`) |
 | `npm run collecte` | Collects matches from the command line, then analyses them |
 | `npm run analyse` | Runs the analysis only |
 | `npm run export` | Exports every stored match to `data/export-parties.jsonl` |
@@ -50,12 +56,14 @@ No third-party website is used.
 - Collected data and analysis results stay on your computer, in the `data/` folder. That folder and your `.env` file are never committed.
 - Your API key is stored only in `.env`.
 - To place each game at the rank it was played, the local database keeps the Riot player IDs (PUUIDs) of the players in each collected game and their observed ranks. They stay in `data/tft.db`, are never written to the exported matches or to the statistics, and are only used locally.
+- With Electron, its browser profile (cache, interface preferences such as the theme) is kept in `%APPDATA%\tft-stats`.
 
 ## Limitations
 
 - A development key allows about 3,000 requests per hour, roughly 2,000 matches. Reading the full ladder takes days; the queue spreads it over several sessions.
 - The rank of a game comes from the closest rank snapshot taken before it, or up to 3 days after it. Games stored before version 0.2 have no player list: their rank is the division they were collected from.
 - Riot does not publish augment statistics for the current set. Augment data comes from your own entries and, when the League client is open, from the client.
+- The overlay stays above the game only in borderless windowed mode, not in exclusive fullscreen, with Edge or Electron alike.
 
 ## Legal
 

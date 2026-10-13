@@ -11,9 +11,18 @@ Ce que fait l'appli
 Installation (une seule fois)
 1. Double-clique sur creer-raccourci.bat : un raccourci « TFT Stats » apparaît
    sur le Bureau et dans le menu Démarrer.
+2. Facultatif : double-clique sur installer-electron.bat (environ 160 Mo à télécharger).
+   L'appli s'ouvre alors dans ses propres fenêtres au lieu d'Edge, et l'overlay devient
+   une fenêtre transparente qui ne prend pas le focus au jeu. Sans Electron, tout
+   marche comme avant, dans Edge. Si l'ancienne version est ouverte à ce moment-là,
+   TFT Stats propose de la fermer au lancement suivant : réponds « Fermer l'autre et
+   relancer ».
 
 Utilisation
-- Double-clique sur « TFT Stats ». Une fenêtre s'ouvre (http://127.0.0.1:3777).
+- Double-clique sur « TFT Stats ». Une fenêtre s'ouvre (http://127.0.0.1:3777), celle
+  d'Electron s'il est installé, sinon une fenêtre Edge.
+- Avec Electron : F5 recharge la page, Ctrl + / Ctrl - / Ctrl 0 (ou Ctrl + molette)
+  règlent le zoom.
 - À l'ouverture, l'application collecte de nouvelles parties puis relance l'analyse,
   toute seule. Ensuite elle recommence toutes les 30 minutes tant qu'elle tourne.
 - Bouton « Mettre à jour » : lance une collecte tout de suite. « Arrêter » : stoppe
@@ -65,14 +74,18 @@ Overlay
   (Aperçu, Unités, Objets, Lobby).
 - ⇄ change de compo, ✕ ferme.
 - Style HUD sans barre de titre : glisse l'en-tête pour le déplacer
-  (à désactiver dans Réglages si besoin).
+  (à désactiver dans Réglages si besoin). Sa position est gardée pour la fois suivante ;
+  avec Electron, si elle tombe hors des écrans (écran débranché), l'overlay revient
+  en haut à gauche.
 - ◐ change la transparence (4 niveaux).
 
 Fichiers
-- TFT Stats.vbs            lance l'application sans fenêtre noire
+- TFT Stats.vbs            lance l'application sans fenêtre noire (avec Electron s'il est installé)
 - TFT Stats (fond).vbs     même chose sans ouvrir la fenêtre (démarrage de Windows)
-- overlay-helper.ps1       pilote la fenêtre de l'overlay (premier plan, forme, déplacement)
-- TFT Stats (console).bat  même chose, avec le journal visible (en cas de souci)
+- installer-electron.bat   installe Electron (facultatif, une seule fois)
+- electron/                la version Electron : fenêtres de l'appli et de l'overlay
+- overlay-helper.ps1       pilote la fenêtre de l'overlay sans Electron (premier plan, forme, déplacement)
+- TFT Stats (console).bat  lance l'application sans Electron, avec le journal visible (en cas de souci)
 - collecter.bat / analyser.bat  l'ancienne méthode, toujours utilisable
 - .env                     ta clé et tes réglages (ne jamais partager)
 - data/tft.db              base SQLite : parties, rangs relevés, file de collecte
@@ -89,5 +102,8 @@ En cas de problème
   « node -v » dans un terminal ; sinon installe la version LTS depuis nodejs.org.
   Le message apparaît aussi dans data/app.log.
 - Rien ne s'ouvre : lance « TFT Stats (console).bat » pour lire le message d'erreur.
+  Il lance l'appli sans Electron : si elle marche ainsi, le souci vient d'Electron ;
+  les lignes « Electron : » de data/app.log l'expliquent. Pour revenir à Edge, supprime
+  le dossier node_modules ; installer-electron.bat le réinstalle.
 - Augments vides ou sans noms : vérifie la connexion internet, supprime
   data/augments-fr.json puis relance l'appli : le fichier est reconstruit depuis Data Dragon.

@@ -1,6 +1,7 @@
 // TFT Stats : application locale. Sert l'interface sur http://127.0.0.1:3777,
 // lance la collecte et l'analyse automatiquement, et affiche la progression en direct.
 // Options : accès depuis le téléphone (réseau local + code PIN), overlay en jeu, démarrage avec Windows.
+// Sous Electron (electron/main.mjs), ce serveur tourne dans un processus enfant et Electron ouvre les fenêtres.
 import http from 'node:http';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -14,7 +15,7 @@ import { analyse } from './analyser.mjs';
 import { scoutLobby, scoutState, readLobby } from './scout.mjs';
 import { ouvrir, nombreParties, etatFile, rangsCibles, getMeta } from './db.mjs';
 
-const PORT = 3777;
+const PORT = Number(process.env.TFT_PORT) || 3777;   // TFT_PORT : autre port, pour les tests
 const LOCAL = '127.0.0.1';
 const PUB = path.join(ROOT, 'public');
 const STATS = path.join(DATA, 'stats.json');
@@ -157,8 +158,13 @@ async function scanLobby(puuid, gameId, puuids) {
 }
 
 // ---- Fenêtres (application et overlay) ----
+// Deux pilotes. Sous Electron (phase 3), on lui envoie des messages et il ouvre ses propres fenêtres.
+// Sinon : Edge en mode application, et overlay-helper.ps1 pour l'overlay.
+const ELECTRON = process.env.TFT_ELECTRON === '1' && typeof process.send === 'function';
+const versElectron = msg => { try { if (!process.connected) return false; process.send(msg, () => {}); return true; } catch { return false; } };
 function openWindow() {
   if (process.env.NO_OPEN) return;
+  if (ELECTRON) { versElectron({ type: 'fenetre' }); return; }
   const url = `http://${LOCAL}:${PORT}/`;
   if (process.platform === 'win32') {
     exec(`start "" msedge --app=${url} --window-size=1300,900`, err => { if (err) exec(`start "" ${url}`); });
@@ -187,11 +193,38 @@ function ovCmd(line) {
 }
 const ovPos = () => { const e = readEnv(), x = Math.round(num(e.OVERLAY_X, 24)), y = Math.round(num(e.OVERLAY_Y, 110)); return [Math.max(-4000, Math.min(8000, x)), Math.max(-4000, Math.min(8000, y))]; };
 function openOverlay(taille = 'complet') {
-  if (process.env.NO_OPEN || process.platform !== 'win32') return false;
+  if (process.env.NO_OPEN) return false;
   const [w, h] = ovTaille(taille), [x, y] = ovPos();
+  if (ELECTRON) return versElectron({ type: 'overlay', x, y, largeur: w, hauteur: h, alpha: ovAlpha(), forme: readEnv().OVERLAY_FORME !== '0' });
+  if (process.platform !== 'win32') return false;
   exec(`start "" msedge --app=http://${LOCAL}:${PORT}/?overlay=1 --window-size=${w},${h} --window-position=${x},${y}`);
   ovCmd(`wait ${ovAlpha()} 700`);
   return true;
+}
+// Commandes de l'overlay ouvert. Tailles en pixels CSS : Electron les prend telles quelles, overlay-helper.ps1
+// veut des pixels de l'écran. Sous Electron, la fenêtre est transparente (la forme vient de la page)
+// et son en-tête la déplace sans passer par le serveur.
+const ovPilote = ELECTRON ? {
+  alpha: a => versElectron({ type: 'alpha', alpha: a }),
+  taille: (w, h) => versElectron({ type: 'taille', largeur: w, hauteur: h }),
+  forme: () => true,
+  bouger: () => true,
+  fermer: () => versElectron({ type: 'fermer' }),
+} : {
+  alpha: a => ovCmd(`alpha ${a}`),
+  taille: (w, h, dpr) => ovCmd(`size ${Math.round(w * dpr)} ${Math.round(h * dpr)}`),
+  forme: f => ovCmd(f ? `region ${f.vx} ${f.vy} ${f.pts.join(' ')}` : 'region'),
+  bouger: d => ovCmd(d ? `moveby ${d[0]} ${d[1]}` : 'movestart'),
+  fermer: () => ovCmd('close'),
+};
+if (ELECTRON) {
+  // Electron signale où l'overlay a été déplacé. S'il se ferme, le serveur s'arrête avec lui.
+  process.on('message', m => {
+    if (!m || m.type !== 'position') return;
+    const x = Math.round(Number(m.x)), y = Math.round(Number(m.y));
+    if (Number.isFinite(x) && Number.isFinite(y)) updateEnv({ OVERLAY_X: Math.max(-4000, Math.min(8000, x)), OVERLAY_Y: Math.max(-4000, Math.min(8000, y)) });
+  });
+  process.on('disconnect', () => { log('Electron fermé : arrêt du serveur'); process.exit(0); });
 }
 function setStartup(on) {
   return new Promise(resolve => {
@@ -224,7 +257,7 @@ const server = http.createServer(async (req, res) => {
   const local = ra === '127.0.0.1' || ra === '::1';
   const host = (req.headers.host || '').toLowerCase();
   // Ce PC : 127.0.0.1 ou localhost. Téléphone : adresse du réseau local, seulement si l'option est active.
-  const okHost = host === `127.0.0.1:${PORT}` || host === `localhost:${PORT}` || (MOBILE && /^\d+\.\d+\.\d+\.\d+:3777$/.test(host) && isPrivate(host.split(':')[0]));
+  const okHost = host === `127.0.0.1:${PORT}` || host === `localhost:${PORT}` || (MOBILE && /^\d+\.\d+\.\d+\.\d+:\d+$/.test(host) && host.endsWith(`:${PORT}`) && isPrivate(host.split(':')[0]));
   if (!okHost || (!local && !(MOBILE && isPrivate(ra)))) { res.writeHead(403); return res.end(); }
   const url = new URL(req.url, `http://${host}`);
   const p = url.pathname;
@@ -280,26 +313,26 @@ const server = http.createServer(async (req, res) => {
       const taille = b.taille === 'compact' ? 'compact' : 'complet';
       const int = (v, lo, hi) => { const n = Math.round(Number(v)); return Number.isFinite(n) && n >= lo && n <= hi ? n : null; };
       // Déplacement par glisser (très fréquent : pas de diffusion aux autres fenêtres)
-      if (b.bouger === 'debut') return json(res, ovCmd('movestart') ? 200 : 400, { ok: true });
-      if (Array.isArray(b.bouger)) { const dx = int(b.bouger[0], -20000, 20000), dy = int(b.bouger[1], -20000, 20000); if (dx === null || dy === null) return json(res, 400, { erreur: 'Déplacement invalide' }); return json(res, ovCmd(`moveby ${dx} ${dy}`) ? 200 : 400, { ok: true }); }
+      if (b.bouger === 'debut') return json(res, ovPilote.bouger(null) ? 200 : 400, { ok: true });
+      if (Array.isArray(b.bouger)) { const dx = int(b.bouger[0], -20000, 20000), dy = int(b.bouger[1], -20000, 20000); if (dx === null || dy === null) return json(res, 400, { erreur: 'Déplacement invalide' }); return json(res, ovPilote.bouger([dx, dy]) ? 200 : 400, { ok: true }); }
       if (Array.isArray(b.position)) { const x = int(b.position[0], -4000, 8000), y = int(b.position[1], -4000, 8000); if (x !== null && y !== null) updateEnv({ OVERLAY_X: x, OVERLAY_Y: y }); return json(res, 200, { ok: true }); }
       // Forme de la fenêtre : contour du panneau (en pixels de l'écran)
       if (b.forme !== undefined) {
-        if (readEnv().OVERLAY_FORME === '0' || !b.forme) return json(res, ovCmd('region') ? 200 : 400, { ok: true });
+        if (readEnv().OVERLAY_FORME === '0' || !b.forme) return json(res, ovPilote.forme(null) ? 200 : 400, { ok: true });
         const vx = int(b.forme.vx, -20000, 20000), vy = int(b.forme.vy, -20000, 20000);
         const pts = Array.isArray(b.forme.pts) && b.forme.pts.length >= 6 && b.forme.pts.length <= 80 ? b.forme.pts.map(v => int(v, -100, 10000)) : null;
         if (vx === null || vy === null || !pts || pts.includes(null)) return json(res, 400, { erreur: 'Forme invalide' });
-        return json(res, ovCmd(`region ${vx} ${vy} ${pts.join(' ')}`) ? 200 : 400, { ok: true });
+        return json(res, ovPilote.forme({ vx, vy, pts }) ? 200 : 400, { ok: true });
       }
-      if (b.fermer) return json(res, ovCmd('close') ? 200 : 400, { ok: true });
+      if (b.fermer) return json(res, ovPilote.fermer() ? 200 : 400, { ok: true });
       if (typeof b.compact === 'boolean') updateEnv({ OVERLAY_COMPACT: b.compact ? '1' : '0' });
       let ok = true;
-      if (b.alpha !== undefined) { const a = int(b.alpha, 90, 255); if (a === null) return json(res, 400, { erreur: 'Transparence hors limites' }); updateEnv({ OVERLAY_ALPHA: a }); ok = ovCmd(`alpha ${a}`); }
+      if (b.alpha !== undefined) { const a = int(b.alpha, 90, 255); if (a === null) return json(res, 400, { erreur: 'Transparence hors limites' }); updateEnv({ OVERLAY_ALPHA: a }); ok = ovPilote.alpha(a); }
       if (b.hauteur !== undefined) {
         const h = int(b.hauteur, 80, 1600), w = int(b.largeur || OV_LARGEUR, 300, 1600), dpr = Math.min(4, Math.max(0.5, Number(b.dpr) || 1));
         if (h === null || w === null) return json(res, 400, { erreur: 'Taille hors limites' });
         updateEnv({ [taille === 'compact' ? 'OVERLAY_H_COMPACT' : 'OVERLAY_H_COMPLET']: h });
-        return json(res, ovCmd(`size ${Math.round(w * dpr)} ${Math.round(h * dpr)}`) ? 200 : 400, { ok: true });
+        return json(res, ovPilote.taille(w, h, dpr) ? 200 : 400, { ok: true });
       }
       if (!b.regler && b.alpha === undefined) ok = openOverlay(taille);
       if (ok) broadcast();
@@ -340,6 +373,8 @@ const server = http.createServer(async (req, res) => {
       if (ch.MOBILE === '1' && !ch.MOBILE_PIN && !readEnv().MOBILE_PIN) return json(res, 400, { erreur: 'Choisis un code PIN pour activer l\'accès téléphone' });
       if (typeof b.demarrageWindows === 'boolean' && b.demarrageWindows !== settingsView().demarrageWindows) await setStartup(b.demarrageWindows);
       updateEnv(ch);
+      // Electron refait l'overlay ouvert avec ou sans barre de titre
+      if (ELECTRON && ch.OVERLAY_FORME) versElectron({ type: 'forme', forme: ch.OVERLAY_FORME !== '0' });
       log('Réglages enregistrés :', Object.keys(ch).filter(k => k !== 'RIOT_API_KEY' && k !== 'MOBILE_PIN').join(', ') + (ch.RIOT_API_KEY ? ' + nouvelle clé' : '') + (ch.MOBILE_PIN ? ' + nouveau PIN' : ''));
       if (!state.running) scheduleAuto();
       broadcast();
@@ -380,8 +415,9 @@ const server = http.createServer(async (req, res) => {
 
 server.on('error', e => {
   if (e.code === 'EADDRINUSE') {
-    // L'application tourne déjà : on rouvre simplement sa fenêtre.
-    if (!FOND) openWindow();
+    // L'application tourne déjà : on rouvre simplement sa fenêtre. Sous Electron, c'est lui qui décide.
+    if (ELECTRON) versElectron({ type: 'deja-lance', url: `http://${LOCAL}:${PORT}/` });
+    else if (!FOND) openWindow();
     setTimeout(() => process.exit(0), 500);
   } else {
     log('Erreur serveur :', e.message);
@@ -390,7 +426,8 @@ server.on('error', e => {
 });
 
 server.listen(PORT, MOBILE ? '0.0.0.0' : LOCAL, async () => {
-  log(`TFT Stats prêt sur http://${LOCAL}:${PORT}/` + (MOBILE ? ` (téléphone : ${settingsView().mobileUrl || 'réseau local introuvable'})` : '') + (FOND ? ' (en arrière-plan)' : ''));
+  log(`TFT Stats prêt sur http://${LOCAL}:${PORT}/` + (MOBILE ? ` (téléphone : ${settingsView().mobileUrl || 'réseau local introuvable'})` : '') + (FOND ? ' (en arrière-plan)' : '') + (ELECTRON ? ' (fenêtres Electron)' : ''));
+  if (ELECTRON) versElectron({ type: 'pret', url: `http://${LOCAL}:${PORT}/` });
   if (!FOND) openWindow();
   startLcu({
     onNew: n => { log(`Client LoL : ${n} partie(s) avec augments récupérée(s)`); quickAnalyse(); },
