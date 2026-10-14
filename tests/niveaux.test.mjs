@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { compoParNiveau, codeEquipe, lirePlanners, codesDesCompos, NIVEAUX, MIN_OBSERVE } from '../niveaux.mjs';
+import { compoParNiveau, codeEquipe, lirePlanners, codesDesCompos, NIVEAUX, MIN_OBSERVE, wilsonLow, statsGlobalesNiveau, statsParNiveau } from '../niveaux.mjs';
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tft-niv-'));
 process.env.TFT_DATA = dir;
@@ -127,4 +127,51 @@ test('client LoL : codes lus une fois, gardés, puis plus redemandés', async ()
   assert.equal(d.sets[18].codes.DA_18_Ornn, 1026);
   assert.equal(await majPlanner({}, lire), false);
   assert.equal(appels, 1);
+});
+
+// ---- Classement par niveau : statistiques ----
+const plat = (lvl, p) => ({ lvl, p });
+// Une compo : 6 plateaux finis au niveau 8 (places 1, 2, 3, 5, 7, 8), 3 au niveau 9 (1, 1, 4) et 1 au niveau 10 (1)
+const compo = [8, 8, 8, 8, 8, 8, 9, 9, 9, 10].map((l, i) => plat(l, [1, 2, 3, 5, 7, 8, 1, 1, 4, 1][i]));
+// Tous les plateaux : la compo plus 10 plateaux du niveau 8 moyens
+const tous = [...compo, ...[2, 3, 4, 5, 6, 4, 5, 3, 6, 4].map(p => plat(8, p))];
+
+test('bornes de Wilson : plus de plateaux = borne plus haute pour la même proportion', () => {
+  assert.equal(wilsonLow(0, 0), 0);
+  assert.ok(wilsonLow(2, 2) < wilsonLow(20, 20) && wilsonLow(20, 20) < wilsonLow(200, 200));
+  assert.ok(wilsonLow(2, 2) < 0.4 && wilsonLow(200, 200) > 0.97);
+  assert.ok(wilsonLow(5, 10) < 0.5);
+});
+
+test('classement par niveau : taux d\'atteinte et top 4 chez ceux qui atteignent le niveau', () => {
+  const g = statsGlobalesNiveau(tous, 9);
+  const x = statsParNiveau(compo, 9, g, 40);
+  assert.equal(x.n, 3);
+  assert.equal(x.nAtteint, 4);                 // niveaux 9 et 10 : 3 + 1 plateaux de la compo
+  assert.equal(x.atteint, 0.4);                // 4 sur 10
+  assert.equal(x.top4Atteint, 1);              // places 1, 1, 4, 1 : toutes dans le top 4
+  assert.equal(statsParNiveau(compo, 8, statsGlobalesNiveau(tous, 8), 40).atteint, 1);   // tous finissent au niveau 8 ou plus
+  assert.equal(statsGlobalesNiveau(tous, 9).atteint, 0.2);   // repère : 4 plateaux sur 20 au niveau 9 ou plus
+});
+
+test('classement par niveau : répartition des places, places 7-8 et régularité', () => {
+  const x = statsParNiveau(compo, 8, statsGlobalesNiveau(tous, 8), 40);
+  assert.deepEqual(x.rep, [1, 1, 1, 0, 1, 0, 1, 1]);   // places 1, 2, 3, 5, 7, 8
+  assert.equal(x.bas, 0.333);                          // 2 plateaux sur 6 en 7e ou 8e place
+  assert.equal(x.sigma, 2.56);                         // écart-type des places 1, 2, 3, 5, 7, 8
+  const reguliere = statsParNiveau([4, 4, 5, 5, 4, 5].map(p => plat(8, p)), 8, statsGlobalesNiveau(tous, 8), 40);
+  assert.ok(reguliere.sigma < x.sigma);
+});
+
+test('classement par niveau : bornes basses du top 1 et du top 4, et niveau sans plateau', () => {
+  const g = statsGlobalesNiveau(tous, 8);
+  const x = statsParNiveau(compo, 8, g, 40);
+  assert.ok(x.top4Low < x.top4 && x.top1Low < x.top1);
+  // même taux de top 4 (100 %) : 2 plateaux valent moins que 200
+  const peu = statsParNiveau([plat(8, 1), plat(8, 2)], 8, g, 40), beaucoup = statsParNiveau(Array.from({ length: 200 }, () => plat(8, 2)), 8, g, 40);
+  assert.equal(peu.top4, 1); assert.equal(beaucoup.top4, 1);
+  assert.ok(peu.top4Low < beaucoup.top4Low);
+  assert.equal(statsParNiveau(compo, 5, g, 40), null);
+  assert.equal(statsGlobalesNiveau(compo, 5), null);
+  assert.equal(statsParNiveau(compo, 8, g, 40, 7), null);   // moins de plateaux que le minimum demandé
 });

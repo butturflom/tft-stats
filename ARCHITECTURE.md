@@ -28,7 +28,7 @@ Application locale pour Windows. Elle collecte les parties classées TFT (EUW) v
 | `lib.mjs` | Lecture de `.env`, `Limiter`, client `Riot`, noms et augments (Data Dragon) | `.env`, caches | `data/noms.json`, `data/augments-fr.json` |
 | `collecter.mjs` | Lit le classement des rangs choisis (Challenger, GM, Master, puis divisions paginées), récupère les parties des joueurs via la file de jobs, compacte, historise ton rang | API Riot, `tft.db` | `tft.db`, `data/rang.jsonl`, `data/collecte.lock` |
 | `db.mjs` | Base SQLite : parties, participants, rangs relevés, rang de chaque partie au moment où elle a été jouée, file de jobs, budget horaire, import de l'ancien `parties.jsonl`, export | `data/parties.jsonl` (une fois) | `data/tft.db` |
-| `analyser.mjs` | Filtre patch, set et rang au moment de la partie, calcule compos, synergies, objets, contestation, rang, tes parties ; bloque la publication si le contrôle échoue | `tft.db`, `rang.jsonl`, `noms.json`, `augments-fr.json`, `app-etat.json` | `data/stats.json` (format 14), `data/qualite.json` |
+| `analyser.mjs` | Filtre patch, set et rang au moment de la partie, calcule compos, synergies, objets, contestation, rang, tes parties ; bloque la publication si le contrôle échoue | `tft.db`, `rang.jsonl`, `noms.json`, `augments-fr.json`, `app-etat.json` | `data/stats.json` (format 15), `data/qualite.json` |
 | `images.mjs` | Images de l'interface servies par l'appli (`/img/...`) avec cache disque : icônes carrées des champions lues dans le client LoL, repli et autres images sur Data Dragon | `data/icones/`, `data/noms.json` | `data/icones/dd/` |
 | `analyse-worker.mjs` | Fil séparé qui exécute l'analyse (plusieurs secondes de calcul) sans figer le serveur | `tft.db` | `data/stats.json` |
 | `patchs.mjs` | Journal local des patchs (Riot ne donne plus le patch d'une partie) : note la date où une nouvelle version de Data Dragon est vue, donne le patch en vigueur à une date | Data Dragon (`versions.json`) | `data/patchs.json` |
@@ -117,7 +117,7 @@ Mode WAL et `busy_timeout` de 5 s : l'application et `collecter.bat` peuvent éc
 - `seed` : rang de la division d'où vient le joueur **au moment de la collecte**, `MOI` ou `LOBBY`. Sert de repli quand le rang au moment de la partie est inconnu (§5, point 2).
 - **Aucun PUUID dans le JSON** (ni dans `stats.json`, ni dans l'export), sauf l'indicateur `me`. Les PUUID sont dans les tables `participants` et `rangs`, en local, pour dater le rang de chaque partie.
 
-### `stats.json` (format 14)
+### `stats.json` (format 15)
 
 Champs de premier niveau : `format`, `patch`, `set`, `parties`, `plateaux`, `controleMoyenne`, `periode`, `rangs`, `sansCarry`, `ddragon` (version des données Data Dragon utilisée), `contestationGlobale`, `compos`, `traits`, `unites`, `moi`, `unitsIndex`, `itemsIndex`, `rang`, `augmentsLobby`, `qualite`.
 
@@ -134,6 +134,8 @@ Format 11 (14/10/2026) : `patchCourant` (`{ patch, source: 'riot' | 'journal', d
 Format 12 (14/10/2026) : `niveauxGlobal` (par niveau de fin 4 à 10 : plateaux, place moyenne, taux de 1re place et de top 4 de tous les plateaux) et, sur chaque compo, `parNiveau` (par niveau de fin, au moins 1 plateau, c'est l'interface qui choisit son seuil : `n`, `avg`, `ci`, `top1`, `top4`, `avgAdj`, `top1Adj`, `ecart`). Le retour à la moyenne se fait vers la moyenne **du niveau** (et non 4,5) : le niveau de fin dépend de la survie (niveau 9 : place moyenne 3,6 ; niveau 10 : 2,1), donc on ne compare les compos qu'à niveau égal. `ecart` = place moyenne corrigée moins moyenne du niveau (négatif = mieux). L'onglet « Classement par niveau » de l'interface les affiche. Format 13 : le seuil par niveau passe de 5 à 1 plateau (au niveau 4, seuls 17 plateaux ont fini, aucune compo n'en avait 5). L'onglet affiche, pour chaque compo, ses champions au niveau choisi (ceux de `niveaux`, observés ou reconstitués). `app.mjs` relance l'analyse si le format lu est inférieur à 13.
 
 Format 14 : `filtre` (`{ choix, applique }`, choix du patch demandé et s'il a pu être appliqué), `patchs` compte maintenant toutes les parties de chaque patch du set (et non plus seulement celles de la période analysée), `patchsInconnu` (parties sans patch connu). `app.mjs` relance l'analyse si le format lu est inférieur à 14.
+
+Format 15 (14/10/2026) : `parNiveau` gagne, par compo et par niveau de fin : `top1Low` et `top4Low` (bornes basses de Wilson à 95 %, `niveaux.mjs`), `atteint` (part des plateaux de la compo qui finissent à ce niveau **ou plus**), `nAtteint`, `top4Atteint` (top 4 chez ceux-là), `rep` (nombre de plateaux par place, 1 à 8), `bas` (part des places 7-8) et `sigma` (écart-type des places). `niveauxGlobal` gagne `bas`, `atteint` et `top4Atteint` pour comparer. Le tri par défaut du classement est la borne basse du top 4 : une compo vue sur 2 plateaux ne passe plus devant une compo éprouvée. Mesuré le 14/10 : le dernier round, les dégâts et les éliminations n'ont pas été retenus (dégâts et éliminations valent 0 dans le set 18, le dernier round est corrélé à -0,9 avec la place, l'or restant à moins de 0,11). `app.mjs` relance l'analyse si le format lu est inférieur à 15.
 
 Incrémenter `format` à chaque changement de structure.
 

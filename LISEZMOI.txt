@@ -44,6 +44,9 @@ Onglets
 - Classement par niveau : les compos classées niveau par niveau (4 à 10), sur les plateaux
                    qui ont fini à ce niveau. À niveau égal, la comparaison est juste ;
                    « Écart » = de combien la compo fait mieux (-) ou moins bien (+) que la moyenne.
+                   Tri par défaut : borne basse du top 4 (une compo vue sur peu de parties ne passe pas
+                   devant une compo éprouvée). « Atteint » = part des parties de la compo qui finissent
+                   à ce niveau ou plus. « Répartition » = les places 1 à 8 et la part des places 7-8.
 - Lobby          : au début de chaque partie, ce que jouent les 7 autres joueurs
                    et les carries contestés. Il faut une clé personnelle Riot : la clé
                    de développement n'a pas accès à l'API spectateur (l'overlay le dit).

@@ -421,3 +421,13 @@ html.ov,.ov body{overflow-x:hidden}
 .ov ::-webkit-scrollbar{width:4px;height:4px}
 .ov ::-webkit-scrollbar-thumb{background:rgba(45,226,255,.7);border-radius:0;border:0;background-clip:border-box}
 .ov ::-webkit-scrollbar-thumb:hover{background:var(--hc);border:0}
+
+/* Classement par niveau : colonnes à deux lignes, répartition des places */
+.tablewrap td.n small,.tablewrap td.n small.muted{display:block;font-size:.7rem;line-height:1.2;white-space:nowrap}
+td.repcell{min-width:92px}
+.rep{display:flex;align-items:flex-end;gap:2px;height:22px;width:76px}
+.rep i{flex:1;border-radius:2px 2px 0 0;min-height:2px;background:var(--line)}
+.rep i.rp-haut{background:var(--good)}
+.rep i.rp-mid{background:var(--warn)}
+.rep i.rp-bas{background:var(--bad)}
+td.repcell small{display:block;font-size:.7rem;margin-top:2px;white-space:nowrap}

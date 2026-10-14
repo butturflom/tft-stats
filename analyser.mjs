@@ -5,7 +5,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { DATA, loadEnv, loadNames, prettyId } from './lib.mjs';
 import { validerParties, controleMoyenne } from './valider.mjs';
-import { compoParNiveau, NIVEAUX } from './niveaux.mjs';
+import { compoParNiveau, NIVEAUX, wilsonLow, statsGlobalesNiveau, statsParNiveau } from './niveaux.mjs';
 import { lireJournal, patchDe, releverVersion } from './patchs.mjs';
 import { ouvrir, lireParties, rangsDesParties, getMeta, rangsCibles } from './db.mjs';
 
@@ -18,11 +18,6 @@ const COST = { 0: 1, 1: 2, 2: 3, 4: 4, 6: 5 };
 const r2 = x => Math.round(x * 100) / 100;
 const r3 = x => Math.round(x * 1000) / 1000;
 const patchOf = v => { const m = String(v).match(/(\d+)\.(\d+)/); return m ? `${m[1]}.${m[2]}` : '?'; };
-function wilsonLow(k, n, z = 1.96) {
-  if (!n) return 0;
-  const p = k / n, d = 1 + z * z / n;
-  return (p + z * z / (2 * n) - z * Math.sqrt(p * (1 - p) / n + z * z / (4 * n * n))) / d;
-}
 // Patchs connus pour ce set : ceux du journal et ceux que Riot donne dans les parties, avec leur nombre de parties
 function listePatchs(recs, journal) {
   const m = new Map();
@@ -239,20 +234,12 @@ export async function analyse({ tous = false, quiet = false } = {}) {
   // Classement par niveau : chaque compo, sur les seuls plateaux qui ont fini à ce niveau. Le niveau de fin dépend de la survie
   // (niveau 6 = éliminé tôt), donc on compare les compos entre elles à niveau égal, avec un retour à la moyenne DU NIVEAU.
   const niveauxGlobal = {};
-  for (const L of NIVEAUX) {
-    const l = boards.filter(b => b.lvl === L);
-    if (!l.length) continue;
-    niveauxGlobal[L] = { plateaux: l.length, avg: r2(l.reduce((t, b) => t + b.p, 0) / l.length), top1: r3(l.filter(b => b.p === 1).length / l.length), top4: r3(l.filter(b => b.p <= 4).length / l.length) };
-  }
+  for (const L of NIVEAUX) { const g = statsGlobalesNiveau(boards, L); if (g) niveauxGlobal[L] = g; }
   for (const c of comps) {
     c.parNiveau = {};
     for (const L of NIVEAUX) {
-      const g = niveauxGlobal[L], l = (groups.get(c.cle) || []).filter(b => b.lvl === L);
-      if (!g || l.length < MIN_NIVEAU) continue;
-      const sum = l.reduce((t, b) => t + b.p, 0), w = l.filter(b => b.p === 1).length, n = l.length;
-      const sd = Math.sqrt(Math.max(0, l.reduce((t, b) => t + b.p * b.p, 0) / n - (sum / n) ** 2));
-      const avgAdj = (sum + K_AVG * g.avg) / (n + K_AVG);
-      c.parNiveau[L] = { n, avg: r2(sum / n), ci: r2(1.96 * sd / Math.sqrt(n)), top1: r3(w / n), top4: r3(l.filter(b => b.p <= 4).length / n), avgAdj: r2(avgAdj), top1Adj: r3((w + K_AVG * g.top1) / (n + K_AVG)), ecart: r2(avgAdj - g.avg) };
+      const x = statsParNiveau(groups.get(c.cle) || [], L, niveauxGlobal[L], K_AVG, MIN_NIVEAU);
+      if (x) c.parNiveau[L] = x;
     }
   }
 
@@ -498,7 +485,7 @@ export async function analyse({ tous = false, quiet = false } = {}) {
   const dates = recs.map(r => r.t);
   const out = {
     genere: new Date().toISOString(),
-    format: 14,
+    format: 15,
     // « patch » : seulement quand il décrit vraiment les parties retenues (Riot le donne, ou PATCH_SEUL=1) ; sinon « ? ».
     // « patchCourant » : patch en vigueur d'après le journal local (data/patchs.json), « patchs » : parties de chaque patch du journal.
     patch: patchRiot || patchSeul ? patchAnalyse : '?', patchSeul, set,

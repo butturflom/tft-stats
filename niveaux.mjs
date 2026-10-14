@@ -123,3 +123,49 @@ export function lirePlanners(brut) {
   }
   return out;
 }
+
+// ---- Classement par niveau : statistiques d'une compo sur les plateaux qui ont fini à un niveau donné ----
+const r2 = x => Math.round(x * 100) / 100;
+const r3 = x => Math.round(x * 1000) / 1000;
+// Borne basse (95 %) de l'intervalle de Wilson d'une proportion : classe sans qu'une compo à 2 plateaux passe devant une compo à 200
+export function wilsonLow(k, n, z = 1.96) {
+  if (!n) return 0;
+  const p = k / n, d = 1 + z * z / n;
+  return (p + z * z / (2 * n) - z * Math.sqrt(p * (1 - p) / n + z * z / (4 * n * n))) / d;
+}
+const compterPlaces = l => { const c = Array(8).fill(0); for (const b of l) if (b.p >= 1 && b.p <= 8) c[b.p - 1]++; return c; };
+
+// Repères de tous les plateaux qui ont fini au niveau L (la compo y est comparée), plus le taux d'atteinte moyen
+export function statsGlobalesNiveau(boards, L) {
+  const l = boards.filter(b => b.lvl === L);
+  if (!l.length) return null;
+  const ge = boards.filter(b => b.lvl >= L);
+  return {
+    plateaux: l.length, avg: r2(l.reduce((t, b) => t + b.p, 0) / l.length),
+    top1: r3(l.filter(b => b.p === 1).length / l.length), top4: r3(l.filter(b => b.p <= 4).length / l.length),
+    bas: r3(l.filter(b => b.p >= 7).length / l.length),
+    atteint: r3(ge.length / boards.length), top4Atteint: r3(ge.filter(b => b.p <= 4).length / ge.length),
+  };
+}
+
+// Une compo au niveau L (boards : tous ses plateaux). g : repères du niveau. kAvg : poids du retour à la moyenne du niveau.
+// Renvoie null sans plateau fini à ce niveau.
+export function statsParNiveau(boards, L, g, kAvg, minPlateaux = 1) {
+  const l = boards.filter(b => b.lvl === L);
+  if (!g || l.length < minPlateaux || !l.length) return null;
+  const n = l.length, sum = l.reduce((t, b) => t + b.p, 0), w = l.filter(b => b.p === 1).length, t4 = l.filter(b => b.p <= 4).length;
+  const sd = Math.sqrt(Math.max(0, l.reduce((t, b) => t + b.p * b.p, 0) / n - (sum / n) ** 2));
+  const avgAdj = (sum + kAvg * g.avg) / (n + kAvg);
+  const rep = compterPlaces(l);
+  const ge = boards.filter(b => b.lvl >= L);
+  return {
+    n, avg: r2(sum / n), ci: r2(1.96 * sd / Math.sqrt(n)), top1: r3(w / n), top4: r3(t4 / n),
+    avgAdj: r2(avgAdj), top1Adj: r3((w + kAvg * g.top1) / (n + kAvg)), ecart: r2(avgAdj - g.avg),
+    // fiabilité : bornes basses du top 1 et du top 4
+    top1Low: r3(wilsonLow(w, n)), top4Low: r3(wilsonLow(t4, n)),
+    // atteinte : part des plateaux de la compo qui finissent à ce niveau ou plus, et top 4 chez eux
+    atteint: r3(ge.length / boards.length), nAtteint: ge.length, top4Atteint: r3(ge.filter(b => b.p <= 4).length / ge.length),
+    // répartition des places 1 à 8, part des places 7-8, régularité (écart-type)
+    rep, bas: r3((rep[6] + rep[7]) / n), sigma: r2(sd),
+  };
+}
