@@ -800,7 +800,8 @@ function ovPanel(s) {
   const btn = bloque ? '' : `<button type="button" class="ghost mini-btn" id="ovScan">${scout && scout.statut === 'en cours' ? 'Repérage en cours…' : scout && scout.statut === 'erreur' ? 'Réessayer' : 'Repérer mon lobby'}</button>`;
   return `${contestHtml(s.carryId, true)}${err}<div class="row" style="margin-top:8px">${btn}<a class="ghost mini-btn" href="/" target="_blank" rel="noopener">Vue complète</a></div>`;
 }
-let OVPICK = false;
+let OVPICK = false, OVPAGE = 0;
+const OV_PAGE = 10;   // compos par page dans la sélection de l'overlay
 const OV_W = 480;
 const ovBtn = (id, sym, title, extra = '') => `<button type="button" class="ovicon"${id ? ` id="${id}"` : ''} title="${esc(title)}"${extra}>${sym}</button>`;
 function ovHead(tierHtml, kicker, nom, btns) {
@@ -815,10 +816,22 @@ function renderOverlay() {
   if (!STATS) { el.innerHTML = `<div class="hud"><div class="hud-in">${ovHead('', 'TFT // HUD', 'En attente des données', '')}<p class="ovtxt muted" style="margin-top:8px">L'analyse n'est pas encore prête.</p></div></div>`; return ovWire(el); }
   const s = suivie();
   if (!s || OVPICK) {
+    // Toutes les compos disponibles (celles de « Mes compos »), dix par page, dans l'ordre du classement
+    const toutes = STATS.compos, pages = Math.max(1, Math.ceil(toutes.length / OV_PAGE));
+    OVPAGE = Math.min(Math.max(OVPAGE, 0), pages - 1);
+    const debut = OVPAGE * OV_PAGE;
+    const ligne = (c, i) => s && s.cle === c.cle
+      ? `<button type="button" class="ovchoice on" data-ovback="1"><b><em>${i + 1}</em>✓ ${esc(c.nom)}</b><span>Compo suivie</span></button>`
+      : `<button type="button" class="ovchoice" data-suivre="${esc(c.cle)}" data-suivre-type="our"><b><em>${i + 1}</em>${esc(c.nom)}</b><span>${pct(c.top1Adj, 0)} de 1res · top 4 ${pct(c.top4, 0)} · ${int(c.n)} plateaux</span></button>`;
+    const pager = pages > 1 ? `<div class="ovpager">${ovBtn('ovPrev', '‹', 'Page précédente', OVPAGE === 0 ? ' disabled' : '')}<span>Page ${OVPAGE + 1} / ${pages}<small>compos ${debut + 1} à ${Math.min(debut + OV_PAGE, toutes.length)} sur ${toutes.length}</small></span>${ovBtn('ovNext', '›', 'Page suivante', OVPAGE >= pages - 1 ? ' disabled' : '')}</div>` : '';
     el.innerHTML = `<div class="hud"><div class="hud-in">${ovHead('', 'Sélection', 'Choisis ta compo', s ? ovBtn('ovBack', '←', 'Retour') : '')}
-      <div class="ovpick">${STATS.compos.filter(c => c.n >= 60).slice(0, 10).map(c => s && s.cle === c.cle ? `<button type="button" class="ovchoice on" data-ovback="1"><b>✓ ${esc(c.nom)}</b><span>Compo suivie</span></button>` : `<button type="button" class="ovchoice" data-suivre="${esc(c.cle)}" data-suivre-type="our"><b>${esc(c.nom)}</b><span>${pct(c.top1Adj, 0)} de 1res · top 4 ${pct(c.top4, 0)}</span></button>`).join('')}</div></div></div>`;
+      <div class="ovpick">${toutes.slice(debut, debut + OV_PAGE).map((c, i) => ligne(c, debut + i)).join('')}</div>${pager}</div></div>`;
     el.querySelectorAll('#ovBack,[data-ovback]').forEach(b => b.onclick = () => { OVPICK = false; render(); });
     el.querySelectorAll('[data-suivre]').forEach(b => b.addEventListener('click', () => { OVPICK = false; }));
+    const aller = d => () => { OVPAGE += d; render(); };
+    const pr = $('#ovPrev'), sv = $('#ovNext');
+    if (pr) pr.onclick = aller(-1);
+    if (sv) sv.onclick = aller(1);
     return ovWire(el);
   }
   const alpha = (STATE && STATE.settings && STATE.settings.overlayAlpha) || 170;
@@ -834,7 +847,7 @@ function renderOverlay() {
     <div class="ovbody">${ovPanel(s)}</div>`}
   </div></div>`;
   el.querySelectorAll('[data-ovt]').forEach(b => b.onclick = () => { OVT = b.dataset.ovt; try { localStorage.setItem('tft-ov-tab', OVT); } catch {} render(); });
-  const pk = $('#ovPick'); if (pk) pk.onclick = () => { OVPICK = true; render(); };
+  const pk = $('#ovPick'); if (pk) pk.onclick = () => { OVPICK = true; const i = STATS.compos.findIndex(c => c.cle === s.cle); OVPAGE = i < 0 ? 0 : Math.floor(i / OV_PAGE); render(); };
   const sc = $('#ovScan'); if (sc) sc.onclick = () => api('/api/lobby', {}).catch(() => {});
   ovBarre();
   ovWire(el);

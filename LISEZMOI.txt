@@ -95,7 +95,8 @@ Overlay
   du niveau 4 au niveau 10 et copie son code d'équipe.
 - Le code d'équipe a besoin des codes des champions, lus dans le client League of Legends :
   ouvre-le une fois (l'appli les relit chaque jour). Sans cela, le bouton le signale.
-- ⇄ change de compo, ✕ ferme.
+- ⇄ change de compo : toutes les compos disponibles, classées, dix par page (‹ ›). La sélection
+  s'ouvre sur la page de la compo suivie. ✕ ferme.
 - Style HUD sans barre de titre : glisse l'en-tête pour le déplacer
   (à désactiver dans Réglages si besoin). Sa position est gardée pour la fois suivante ;
   avec Electron, si elle tombe hors des écrans (écran débranché), l'overlay revient
