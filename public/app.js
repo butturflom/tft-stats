@@ -7,6 +7,12 @@ const f2 = x => x == null ? '—' : Number(x).toFixed(2).replace('.', ',');
 const int = x => Number(x || 0).toLocaleString('fr-FR');
 const norm = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\(.*?\)/g, '').replace(/[^a-z0-9' ]/g, ' ').replace(/\s+/g, ' ').trim();
 const ago = iso => { if (!iso) return 'jamais'; const m = Math.round((Date.now() - new Date(iso)) / 60000); return m < 1 ? 'à l\'instant' : m < 60 ? `il y a ${m} min` : m < 1440 ? `il y a ${Math.round(m / 60)} h` : `il y a ${Math.round(m / 1440)} j`; };
+// Image introuvable : on met le début du nom à la place. Pas d'attribut onerror dans le HTML (la politique
+// de sécurité interdit les scripts en ligne) ; l'événement « error » ne remonte pas, d'où la phase de capture.
+document.addEventListener('error', e => {
+  const i = e.target;
+  if (i && i.tagName === 'IMG' && i.dataset.repli !== undefined) i.replaceWith(document.createTextNode(i.dataset.repli));
+}, true);
 const api = (p, body) => fetch(p, body ? { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-TFT': '1' }, body: JSON.stringify(body) } : { cache: 'no-store' })
   .then(async r => { const j = await r.json().catch(() => ({})); if (!r.ok) throw Object.assign(new Error(j.erreur || 'Erreur ' + r.status), { status: r.status }); return j; });
 
@@ -49,7 +55,7 @@ async function loadAug() {
 function unitPic(nom, img) {
   if (ICONS[nom]) return `<img src="data:image/webp;base64,${ICONS[nom]}" alt="" loading="lazy" decoding="async">`;
   const u = ddUrl('tft-champion', img);
-  if (u) return `<img src="${u}" alt="" loading="lazy" decoding="async" onerror="this.replaceWith(document.createTextNode('${esc(nom.slice(0, 3))}'))">`;
+  if (u) return `<img src="${u}" alt="" loading="lazy" decoding="async" data-repli="${esc(nom.slice(0, 3))}">`;
   return esc(nom.slice(0, 3));
 }
 function unitTile(nom, { img, cost, rank, sub } = {}) {

@@ -9,7 +9,7 @@ import path from 'node:path';
 import { EventEmitter } from 'node:events';
 import { fork } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { memeSecret, LimiteEssais, cheminDansDossier, lireCorps, riotIdValide, valeurEnv } from '../securite.mjs';
+import { memeSecret, LimiteEssais, cheminDansDossier, lireCorps, riotIdValide, valeurEnv, CSP, ENTETES_SECURITE } from '../securite.mjs';
 import { updateEnv, loadEnv } from '../lib.mjs';
 
 const racine = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -192,4 +192,48 @@ test('serveur : un Riot ID avec saut de ligne est refusé et le .env reste intac
   assert.equal(envDe(ENV).RIOT_ID, 'Pseudo#EUW');
   assert.equal(envDe(ENV).MOBILE, undefined);
 });
+// ---- Content-Security-Policy ----
+const lirePublic = f => fs.readFileSync(path.join(racine, 'public', f), 'utf8');
+
+test('politique : scripts de l\'appli seulement, ni eval ni ressource externe autre que les polices', () => {
+  const d = Object.fromEntries(CSP.split('; ').map(x => [x.split(' ')[0], x.split(' ').slice(1)]));
+  assert.deepEqual(d['script-src'], ["'self'"]);
+  assert.deepEqual(d['default-src'], ["'self'"]);
+  assert.ok(!CSP.includes('unsafe-eval'));
+  assert.ok(!d['script-src'].includes("'unsafe-inline'"));
+  assert.deepEqual(d['object-src'], ["'none'"]);
+  assert.deepEqual(d['frame-ancestors'], ["'none'"]);
+  assert.deepEqual(d['base-uri'], ["'none'"]);
+  assert.deepEqual(d['connect-src'], ["'self'"]);
+  const hotes = CSP.match(/https?:\/\/[^\s;]+/g).sort();
+  assert.deepEqual(hotes, ['https://fonts.googleapis.com', 'https://fonts.gstatic.com']);
+  assert.equal(ENTETES_SECURITE['Content-Security-Policy'], CSP);
+});
+
+test('interface : aucun script ni gestionnaire d\'événement écrit dans le HTML (la politique les bloquerait)', () => {
+  const html = lirePublic('index.html');
+  const scripts = [...html.matchAll(/<script\b([^>]*)>/gi)].map(m => m[1]);
+  assert.ok(scripts.length >= 2);
+  for (const attrs of scripts) assert.match(attrs, /\bsrc="[\w.-]+\.js"/, 'script en ligne : ' + attrs);
+  assert.ok(!/\son[a-z]+\s*=/i.test(html), 'gestionnaire en ligne dans index.html');
+  assert.ok(!/javascript:/i.test(html + lirePublic('app.js')));
+  // app.js construit du HTML : aucun onclick=, onerror=… dans ses gabarits
+  assert.ok(!/<[a-z][^>]*\son[a-z]+\s*=/i.test(lirePublic('app.js')), 'gestionnaire en ligne dans les gabarits de app.js');
+  assert.ok(!/\b(eval|new Function)\(/.test(lirePublic('app.js')));
+  assert.ok(fs.existsSync(path.join(racine, 'public', 'theme.js')));
+});
+
+test('serveur : la politique et les en-têtes de sécurité accompagnent chaque réponse', async () => {
+  const port = portServeur || await demarrer();
+  const attendu = ENTETES_SECURITE;
+  for (const p of ['/', '/app.js', '/theme.js', '/style.css', '/api/etat', '/api/lobby', '/img/dd/tft-item/inconnu.png', '/introuvable', '/../x']) {
+    const r = await fetch(`http://127.0.0.1:${port}${p}`);
+    for (const [nom, valeur] of Object.entries(attendu)) assert.equal(r.headers.get(nom), valeur, `${p} : ${nom}`);
+    await r.arrayBuffer();
+  }
+  const post = await fetch(`http://127.0.0.1:${port}/api/stop`, { method: 'POST', body: '{}' });
+  assert.equal(post.status, 403);
+  assert.equal(post.headers.get('content-security-policy'), CSP);
+});
+
 const envDe = f => Object.fromEntries(fs.readFileSync(f, 'utf8').split(/\r?\n/).filter(l => l.includes('=') && !l.startsWith('#')).map(l => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]));

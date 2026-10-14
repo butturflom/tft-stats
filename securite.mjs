@@ -68,3 +68,25 @@ export const riotIdValide = r => typeof r === 'string' && /^[^#]{3,16}#[^#]{2,5}
 
 // Valeur sûre pour une ligne CLE=valeur de .env : sans saut de ligne, qui ajouterait un autre réglage.
 export const valeurEnv = v => String(v).replace(/[\r\n\u2028\u2029]+/g, ' ');
+
+// Content-Security-Policy de toutes les réponses. Les scripts ne viennent que de l'appli (rien d'écrit dans le HTML,
+// aucun eval) : une balise ou un attribut injecté dans la page ne s'exécute pas. Les attributs style="…" servent à la
+// taille des barres, d'où 'unsafe-inline' pour les styles seulement. Seules ressources externes : les polices Google Fonts.
+export const CSP = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  "font-src https://fonts.gstatic.com",
+  "img-src 'self' data:",
+  "connect-src 'self'",
+  "object-src 'none'",
+  "base-uri 'none'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+].join('; ');
+
+export const ENTETES_SECURITE = {
+  'Content-Security-Policy': CSP,
+  'X-Content-Type-Options': 'nosniff',
+  'Referrer-Policy': 'no-referrer',
+};

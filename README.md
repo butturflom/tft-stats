@@ -52,12 +52,13 @@ Only two sources are used:
 - **Riot Games API**: ranked matches, players, ranks and the lobby. Each user uses a personal key. Keys are never bundled with the code.
 - **Data Dragon**: Riot's official static data: champion, trait and item names and icons, and augment names and descriptions in French.
 
-No third-party website is used.
+No third-party website is used for data. The only request to a third party is the dashboard's typefaces (Rajdhani, Figtree, JetBrains Mono), loaded from Google Fonts by `public/index.html`: Google sees your IP address when the dashboard opens. The app works without them (the browser falls back to system fonts). To remove that request, delete the three `fonts.*` links from `public/index.html` and the two Google hosts from `CSP` in `securite.mjs`.
 
 ## Security
 
 - The server listens on `127.0.0.1` only, checks the `Host` header (against DNS rebinding) and requires an `X-TFT: 1` header on every `POST`, so a web page you visit cannot change your settings.
 - The optional phone access (`MOBILE=1`) opens the local network behind a PIN: constant-time comparison, 5 wrong codes per address then a 10-minute pause, no access to settings or shutdown from the phone. It uses plain HTTP: use it on a home network only, and prefer a 6 to 8 digit PIN.
+- Every response carries a `Content-Security-Policy` (`securite.mjs`): scripts only from the app itself (no inline script, no `eval`), so markup injected into a page does not run; connections only to the app; no framing. The only external resources allowed are the Google Fonts stylesheet and font files.
 - Security-sensitive helpers (PIN check, attempt limiter, served-file path, request body reading, `.env` values) live in `securite.mjs` and are covered by `tests/securite.test.mjs`.
 
 ## Data and privacy

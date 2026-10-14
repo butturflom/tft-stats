@@ -18,7 +18,7 @@ import { codesDesCompos } from './niveaux.mjs';
 import { releverVersion } from './patchs.mjs';
 import { scoutLobby, scoutState, readLobby } from './scout.mjs';
 import { ouvrir, nombreParties, etatFile, rangsCibles, getMeta } from './db.mjs';
-import { memeSecret, LimiteEssais, cheminDansDossier, lireCorps, riotIdValide } from './securite.mjs';
+import { memeSecret, LimiteEssais, cheminDansDossier, lireCorps, riotIdValide, ENTETES_SECURITE } from './securite.mjs';
 
 const PORT = Number(process.env.TFT_PORT) || 3777;   // TFT_PORT : autre port, pour les tests
 const LOCAL = '127.0.0.1';
@@ -280,6 +280,7 @@ const body = async req => { try { const o = JSON.parse((await lireCorps(req, 1e5
 
 // Une erreur dans une route ne doit jamais arrêter le serveur : réponse 500, détail dans le journal
 async function traiter(req, res) {
+  for (const [nom, valeur] of Object.entries(ENTETES_SECURITE)) res.setHeader(nom, valeur);
   const ra = String(req.socket.remoteAddress || '').replace(/^::ffff:/, '');
   const local = ra === '127.0.0.1' || ra === '::1';
   const host = (req.headers.host || '').toLowerCase();
