@@ -29,10 +29,12 @@ const APEX = ['MASTER', 'GRANDMASTER', 'CHALLENGER'];
 const ALL_RANKS = Object.keys(TIERS_FR).flatMap(t => (APEX.includes(t) ? [`${t}:I`] : ['IV', 'III', 'II', 'I'].map(d => `${t}:${d}`)));
 const rangsChoisis = r => { const s = String(r || '').trim().toUpperCase(); return !s || s === 'TOUS' ? ALL_RANKS.slice() : s.split(',').filter(x => ALL_RANKS.includes(x)); };
 
-let STATE = null, STATS = null, ICONS = {}, statsVer = null, TAB = 'compos';
+let STATE = null, STATS = null, statsVer = null, TAB = 'compos';
 let AUG = { version: null, augments: {} }, augVer = null, EDITING = false;
 const UI = { cnt: 20, ncnt: 40, nl: 9, nsort: 'top4Low', nmin: 10, nq: '', aq: '', q: '', minN: 100, sort: 'top1Adj', tq: '', star: 'all', uq: '' };
-try { const t = localStorage.getItem('tft-tab'); if (t && !['objets', 'sites'].includes(t)) TAB = t; } catch {}
+// Onglet mémorisé : seulement s'il existe encore (un ancien onglet retiré afficherait une erreur)
+const ONGLETS = ['compos', 'niveaux', 'lobby', 'synergies', 'augments', 'moi', 'reglages'];
+try { const t = localStorage.getItem('tft-tab'); if (ONGLETS.includes(t)) TAB = t; } catch {}
 
 // ---- Icônes ----
 // Les images passent par l'appli (cache sur disque, icônes carrées légères des champions) et non plus par Data Dragon
@@ -53,7 +55,6 @@ async function loadAug() {
 }
 
 function unitPic(nom, img) {
-  if (ICONS[nom]) return `<img src="data:image/webp;base64,${ICONS[nom]}" alt="" loading="lazy" decoding="async">`;
   const u = ddUrl('tft-champion', img);
   if (u) return `<img src="${u}" alt="" loading="lazy" decoding="async" data-repli="${esc(nom.slice(0, 3))}">`;
   return esc(nom.slice(0, 3));
@@ -78,6 +79,12 @@ function rangsTxt(r) {
   list.sort((a, b) => val(a) - val(b));
   const lbl = ([t, d]) => (APEX.includes(t) ? TIERS_FR[t] : `${TIERS_FR[t] || t} ${d}`);
   return list.length === 1 ? lbl(list[0]) : `${lbl(list[0])} → ${lbl(list[list.length - 1])}`;
+}
+// Rangs des parties analysées (filtre appliqué par la dernière analyse), pour les titres : « Argent III → Challenger »
+function rangsAnalyses() {
+  const f = STATS && STATS.qualite && STATS.qualite.rangs && STATS.qualite.rangs.filtre;
+  if (!Array.isArray(f)) return 'tout le ladder';
+  return rangsTxt(f.map(x => String(x).replace(' ', ':')).join(',')) || 'rangs choisis';
 }
 function renderStatus() {
   const s = STATE;
@@ -376,7 +383,7 @@ function renderCompos() {
   const el = $('#tab-compos');
   if (!STATS) { el.innerHTML = `<h2>Mes compos</h2>${noData()}`; return; }
   UI.cnt = PAGE;
-  el.innerHTML = `<h2>Mes compos · Argent–Or EUW</h2>
+  el.innerHTML = `<h2>Mes compos · ${esc(rangsAnalyses())} · EUW</h2>
     <p class="lead">Calculé sur tes propres parties collectées via l'API Riot. Le taux de 1re place est corrigé pour les compos peu jouées : il faut beaucoup de parties pour qu'un chiffre spectaculaire soit crédible. La marge (±) indique la précision de la place moyenne.</p>
     ${qualiteLine()}
     ${factsLine()}
@@ -495,7 +502,7 @@ function renderSynergies() {
       <div class="toolbar"><input type="search" id="uq" placeholder="Filtrer un champion" value="${esc(UI.uq)}" aria-label="Filtrer les champions">
         <select id="star" aria-label="Étoiles">${[['all', 'Toutes les étoiles'], ['1', '1 étoile'], ['2', '2 étoiles'], ['3', '3 étoiles']].map(([v, l]) => `<option value="${v}" ${UI.star == v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
       <div class="tablewrap"><table><thead><tr><th>Champion</th><th class="n">Étoiles</th><th class="n">Plateaux</th><th class="n">1re place</th><th class="n">Top 4</th><th class="n">Place moy.</th></tr></thead>
-      <tbody>${units.map(u => `<tr><td><span class="mini k${COST[u.unite] || 0}"><i>${unitPic(u.unite, u.img)}</i>${esc(u.unite)}</span></td><td class="n">${'★'.repeat(u.etoiles)}</td><td class="n">${int(u.n)}</td><td class="n">${pct(u.top1Adj)}</td><td class="n">${pct(u.top4, 0)}</td><td class="n">${f2(u.avg)} ±${f2(u.ci)}</td></tr>`).join('')}</tbody></table></div>
+      <tbody>${units.map(u => `<tr><td><span class="mini k${costOf(u.id)}"><i>${unitPic(u.unite, u.img)}</i>${esc(u.unite)}</span></td><td class="n">${'★'.repeat(u.etoiles)}</td><td class="n">${int(u.n)}</td><td class="n">${pct(u.top1Adj)}</td><td class="n">${pct(u.top4, 0)}</td><td class="n">${f2(u.avg)} ±${f2(u.ci)}</td></tr>`).join('')}</tbody></table></div>
     </div>`;
   const keep = (id, fn) => { const n = $(id); n.oninput = e => { fn(e.target.value); const pos = e.target.selectionStart; renderSynergies(); const m = $(id); m.focus(); m.setSelectionRange(pos, pos); }; };
   keep('#tq', v => UI.tq = v); keep('#uq', v => UI.uq = v);
@@ -536,10 +543,10 @@ function renderMoi() {
   const el = $('#tab-moi');
   const s = STATE && STATE.settings;
   if (!s || !s.riotId) { el.innerHTML = `<h2>Mes parties</h2><div class="empty">Renseigne ton Riot ID dans les réglages pour comparer tes résultats à ceux des autres joueurs de ton niveau.<br><br><button type="button" class="primary" data-go="reglages">Ouvrir les réglages</button></div>`; return; }
-  if (!STATS || !STATS.moi) { el.innerHTML = `<h2>Mes parties</h2>${noData('Aucune de tes parties classées du patch actuel n\'a encore été collectée.')}`; return; }
+  if (!STATS || !STATS.moi) { el.innerHTML = `<h2>Mes parties</h2>${noData('Aucune de tes parties classées du set actuel n\'a encore été collectée.')}`; return; }
   const m = STATS.moi;
   el.innerHTML = `<h2>Mes parties · ${esc(s.riotId)}</h2>
-    <p class="lead">Tes résultats par compo, comparés aux joueurs Argent–Or qui jouent la même compo. Un écart négatif sur la place moyenne veut dire que tu fais mieux qu'eux.</p>
+    <p class="lead">Tes résultats par compo, comparés aux joueurs des rangs analysés (${esc(rangsAnalyses())}) qui jouent la même compo. Un écart négatif sur la place moyenne veut dire que tu fais mieux qu'eux.</p>
     <div class="cards3">
       <div class="stat"><b>${m.n}</b><span>parties du set</span></div>
       <div class="stat"><b>${f2(m.avg)}</b><span>place moyenne</span></div>
@@ -555,7 +562,7 @@ function renderMoi() {
     <p class="lead" style="margin-top:10px">Avec peu de parties par compo, les écarts sont surtout indicatifs : regarde la tendance sur plusieurs sessions.</p>`;
 }
 
-// Diagnostic : 5 points concrets, chacun avec un verdict et un conseil
+// Diagnostic : 6 points concrets, chacun avec un verdict et un conseil
 function coachHtml(j) {
   if (!j) return "";
   const n1 = x => x == null ? "—" : Number(x).toFixed(1).replace(".", ",");
@@ -597,7 +604,7 @@ function coachHtml(j) {
   out.push(card("Unités 3★", peu ? "bad" : "ok",
     `<span><b>${n1(t3.moi)}</b> par partie (toi)</span><span><b>${n1(t3.autresTop4)}</b> chez les top 4</span><span><b>${n1(t3.autres1er)}</b> chez les 1ers</span>`,
     peu ? "Les joueurs qui finissent haut ont souvent 2 unités 3★ : ce sont des compos reroll où l'on roule à un niveau fixe (5, 6 ou 7) en gardant 50 pièces, jusqu'à trouver les 3★." : "Tu sais aller chercher des 3★ quand ta compo le demande."));
-  // 5. Niveau
+  // 6. Niveau
   const e = j.niveau.ecart;
   out.push(card("Niveau atteint", e == null ? "na" : e < -0.3 ? "bad" : "ok",
     `<span>écart moyen <b>${e == null ? "—" : (e > 0 ? "+" : "") + f2(e)}</b> niveau par rapport aux joueurs sortis au même round</span>`,
@@ -611,7 +618,7 @@ function coachHtml(j) {
     <td>${p.objetsOk == null ? "<span class=\"muted\">—</span>" : p.objetsOk ? "<span class=\"good\">✓</span>" : `<span class="bad">✗</span> <small>conseillés : ${esc(p.conseilles.join(", "))}</small>`}</td>
     <td><small>${p.horsNoyau == null ? "—" : p.horsNoyau.length ? esc(p.horsNoyau.join(", ")) : "aucune"}</small></td></tr>`).join("");
   return `<h3 class="section">Diagnostic de ton jeu</h3>
-    <p class="lead">Ce qui différencie tes défaites de tes top 4, comparé aux autres joueurs Argent–Or. Les augments ne sont pas fournis par Riot : ils ne peuvent pas être analysés ici.</p>
+    <p class="lead">Ce qui différencie tes défaites de tes top 4, comparé aux autres joueurs des rangs analysés (${esc(rangsAnalyses())}). Les augments ne sont pas fournis par Riot : ils ne peuvent pas être analysés ici.</p>
     <div class="coachgrid">${out.join("")}</div>
     <h3 class="section">Tes dernières parties</h3>
     <div class="tablewrap" style="margin-top:10px"><table class="wrapcells"><thead><tr><th>Date</th><th class="n">Place</th><th>Compo</th><th class="n">Niv.</th><th class="n">Or</th><th class="n">4-5c 1★</th><th class="n">3★</th><th>Augments</th><th>Objets carry</th><th>Unités hors noyau</th></tr></thead><tbody>${rows}</tbody></table></div>`;
