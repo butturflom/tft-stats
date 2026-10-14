@@ -1,6 +1,6 @@
 # TFT Stats : architecture
 
-Document de référence. Les parties 1 à 5 décrivent l'état **réel** du code, constaté le 14/10/2026 (après la phase 3, coque Electron, puis compo par niveau, code d'équipe, journal des patchs, classement par niveau, images et performances, revue de sécurité : §5, points 15 à 18). La partie 6 propose la trajectoire, la partie 7 liste les décisions, la partie 8 fixe le périmètre des données.
+Document de référence. Les parties 1 à 5 décrivent l'état **réel** du code, constaté le 14/10/2026 (après la phase 3, coque Electron, puis compo par niveau, code d'équipe, journal des patchs, classement par niveau, images et performances : §5, points 15 à 17 ; puis revue complète du code, sauvegarde quotidienne et édition publique : §5, point 18). La partie 6 propose la trajectoire, la partie 7 liste les décisions, la partie 8 fixe le périmètre des données.
 
 ---
 
@@ -231,6 +231,21 @@ Sous Electron, `/api/overlay` accepte toujours `forme` et `bouger` mais ne les t
 
 ## 6. Trajectoire proposée
 
+**Où en est le projet** (mis à jour le 15/10/2026, dernier état poussé sur `main`) :
+
+| Étape | État | Où |
+|---|---|---|
+| Phase 0 : hygiène du dépôt | Faite (13/10) | ci-dessous |
+| Phase 1 : contrôle qualité avant affichage | Faite (13/10) | ci-dessous |
+| Phase 2 : collecte du ladder complet | Faite (13/10), deux points restants | ci-dessous |
+| Phase 3 : coque Electron | Faite (13/10), sans paquet installable | ci-dessous |
+| Fonctions du 14/10 : compo par niveau, code d'équipe, journal et choix du patch, classement par niveau, images | Faites | §5, points 15 à 17 |
+| Revue complète du code, sécurité, robustesse, sauvegarde quotidienne | Faite (14/10), 133 tests | §5, point 18 |
+| Phase 5 : publication grand public | **En cours** : édition publique et brouillons faits, démarches Riot à lancer | Phase 5 ci-dessous, `docs/publication/LISEZMOI.md` |
+| Phase 4 : couche LLM | Non commencée, facultative | ci-dessous |
+
+**Prochaine action** : l'utilisateur crée le produit sur le portail développeur Riot et demande une clé de production (description prête : `docs/publication/riot-application.md`). Rien d'autre de la phase 5 n'avance sans cette clé.
+
 **Principe** : faire évoluer le code existant, sans le réécrire. L'application fonctionne, elle a déjà 4 900 parties et une logique métier riche (compos, objets, rang, lobby, récap). Une réécriture en Electron ou TypeScript ne résoudrait pas les vrais problèmes (échantillonnage, validation, stockage).
 
 **Phase 0 : hygiène du dépôt** (avant toute publication) — **faite le 13/10/2026**
@@ -258,14 +273,14 @@ Sous Electron, `/api/overlay` accepte toujours `forme` et `bouger` mais ne les t
 - Vérifié sur tes données : 5 100 parties importées, 0 doublon, 0 ligne illisible ; même résultat d'analyse qu'en phase 1 (4 941 parties retenues, place moyenne 4,5).
 - Interface : rangs Master, Grand maître et Challenger ajoutés, boutons « Tout le ladder » et « Tout décocher », budget horaire, état de la file pendant la collecte.
 - Ordre de grandeur, d'après la dernière collecte observée (200 parties en 6,1 min, 343 requêtes) : ≈ 2 000 parties par heure. 10 000 parties ≈ 5 h de collecte, 50 000 ≈ 25 h, réparties sur plusieurs jours.
-- Pas encore fait : choix des rangs analysés séparé des rangs collectés, filtre par patch dans l'interface (l'API ne donne plus le patch depuis l'été 2026 : §5, point 15), analyse filtrée en SQL (§5, point 3).
+- Fait depuis : filtre par patch dans l'interface (liste « Période », 14/10, §5, point 15). Pas encore fait : choix des rangs analysés séparé des rangs collectés, analyse filtrée en SQL (§5, point 3).
 
 **Phase 3 : coque Electron (facultative)** — **faite le 13/10/2026**
 - Une couche fine : `electron/main.mjs` lance `app.mjs` dans un processus enfant, puis ouvre le tableau de bord et l'overlay dans des `BrowserWindow` quand le serveur le demande (messages IPC, §4). Sous Electron, Edge et `overlay-helper.ps1` ne servent plus ; ils restent pour qui n'installe pas Electron.
 - Overlay : `alwaysOnTop` (niveau `screen-saver`), `transparent`, sans cadre, affiché sans voler le focus au jeu. La forme vient du panneau, l'en-tête déplace la fenêtre, la position est gardée. « Overlay détouré » décoché : fenêtre avec barre de titre. `setIgnoreMouseEvents` n'a pas été retenu : la fenêtre colle au panneau (§5, point 13).
 - Une seule instance. Fermer les fenêtres ne coupe pas l'application, « Quitter l'application » ferme tout. Si une instance lancée sans Electron tourne déjà, Electron propose de la fermer puis prend le relais.
 - Le cœur (`collecter`, `analyser`, `valider`, `db`) ne change pas. `app.mjs` gagne un pilote de fenêtres (Edge ou Electron), `lib.mjs` lit `TFT_ENV` et `app.mjs` lit `TFT_PORT`, pour les tests.
-- Electron reste facultatif : seule dépendance du projet, en dépendance de développement (`electron@^44.7.0`, `package-lock.json`), installée par `installer-electron.bat`. Sans lui, tout fonctionne comme avant.
+- Electron reste facultatif : seule dépendance du projet, en dépendance de développement (`electron@^44.7.2` depuis le 14/10, `package-lock.json`), installée par `installer-electron.bat`. Sans lui, tout fonctionne comme avant.
 - Vérifié : 39 tests, dont le dialogue entre le serveur et Electron. Essai réel sur une copie isolée : migration SQLite de 5 300 parties sans perte, analyse publiée (5 126 parties retenues, contrôle de qualité ok), tableau de bord et overlay sous Electron, réglages de l'overlay, mode arrière-plan, deuxième lancement, reprise d'une instance sans Electron, sortie (§5, point 13).
 - Reste Windows seulement : lockfile LoL, overlay au-dessus du jeu.
 - Essayé en partie le 13/10 (§5, point 13). Pas encore fait : paquet installable (electron-builder) ; icône dans la zone de notification.
@@ -274,6 +289,12 @@ Sous Electron, `/api/overlay` accepte toujours `forme` et `bouger` mais ne les t
 - Ne reçoit que des statistiques validées (`stats.json`, section `qualite` incluse) et rédige l'explication en français.
 - Chaque chiffre cité doit exister dans le snapshot, sinon la réponse est rejetée.
 - Désactivable. L'application fonctionne sans.
+
+**Phase 5 : publication grand public** — **en cours depuis le 14/10/2026** (suivi détaillé : `docs/publication/LISEZMOI.md`)
+- Règles : [politique de Riot pour TFT](https://developer.riotgames.com/docs/tft) et [conformité TFT d'Overwolf](https://dev.overwolf.com/ow-electron/guides/game-compliance/teamfight-tactics). Clé de production obligatoire, jamais livrée dans l'application : il faut un serveur.
+- Fait : édition publique (`EDITION=publique`, `edition.mjs`) sans repérage du lobby ni statistiques d'augments ; brouillons de la description pour Riot, de la politique de confidentialité et des conditions d'utilisation (`docs/publication/`).
+- À faire par l'utilisateur : produit sur le portail Riot et demande de clé de production ; hébergement ; compléter et faire relire les documents juridiques ; comptes Microsoft Store et Overwolf.
+- À faire ensuite (code) : serveur de collecte et d'analyse (reprend `collecter`, `db`, `analyser`), application qui lit ce serveur, Riot Sign On pour « Mes parties », paquet MSIX pour le Microsoft Store, puis portage vers ow-electron pour Overwolf.
 
 **Note sur les « agents »** : les étapes imaginées (collecte, normalisation, analyse, restitution) existent déjà sous forme de modules. Inutile d'en faire des agents LLM : le code déterministe est plus fiable et moins coûteux. Un LLM n'apporte de valeur qu'à la restitution (phase 4).
 
@@ -286,11 +307,16 @@ Sous Electron, `/api/overlay` accepte toujours `forme` et `bouger` mais ne les t
 - **Cible : le ladder complet, avec filtres** (rangs, patch, set). Collecte du ladder complet et filtre par rang faits en phase 2 (§5, points 1 et 2).
 - **Sources de données : Riot API et Data Dragon uniquement** (décision du 13/10/2026). Tout autre site est retiré du code et des données (§8).
 - **Stockage : SQLite** (phase 2, 13/10/2026), avec le module intégré `node:sqlite` : Node.js 22.13 au minimum, toujours sans dépendance npm.
+- **Pas d'accès à distance** (14/10/2026) : mode téléphone et code PIN retirés, le serveur n'écoute que sur ce PC.
+- **Aucune ressource externe dans l'interface** (14/10/2026) : polices hébergées dans `public/fonts/`, politique de sécurité sans hôte externe.
+- **Sauvegarde quotidienne de la base** (14/10/2026) : `data/sauvegardes/`, 7 jours gardés.
+- **Édition publique distincte** (14/10/2026) : la version grand public suit les règles de Riot pour TFT ; l'édition personnelle garde toutes les fonctions.
 
 **En attente**
 1. Langue du code et de la doc technique : anglais recommandé, interface en français avec i18n.
 2. Plateforme : Windows seul en v1 (lockfile LoL, overlay).
 3. Réintégrer une source tierce : seulement avec l'accord écrit de son éditeur, et sur décision de l'utilisateur.
+4. Publication : ordre des plateformes (proposé : Microsoft Store, gratuit et signé par Microsoft, puis Overwolf), hébergement du serveur, modèle économique (Riot impose une version gratuite), nom du produit (règles de Riot sur « TFT » dans un nom, non vérifiées).
 
 ## 8. Sources de données
 
@@ -330,4 +356,6 @@ Sous Electron, `/api/overlay` accepte toujours `forme` et `bouger` mais ne les t
 - `npm run collecte` (ou `node collecter.mjs --parties=800`) : collecte en ligne de commande, puis analyse.
 - `npm run analyse` (ou `node analyser.mjs [--tous]`) : analyse seule (`--tous` pour tous les patchs).
 - `npm run lint` : vérifie la syntaxe. `npm test` : lance les tests.
-- Variables pour les tests et les essais : `TFT_DATA` (dossier de données), `TFT_ENV` (fichier `.env`), `TFT_PORT` (port), `TFT_RANGS` (rangs analysés), `NO_OPEN=1` (aucune fenêtre). `TFT_ELECTRON=1` est posée par Electron pour son serveur.
+- `node scripts/analyse-reference.mjs --donnees <copie de data> --sortie <dossier> [--code <racine>]` puis `node scripts/analyse-comparer.mjs <A> <B>` : avant de retoucher l'analyse, vérifier que ses résultats ne changent pas (sur une copie, jamais le vrai `data/`).
+- Réglage `EDITION=publique` (`.env`) : édition publique, sans repérage du lobby ni statistiques d'augments.
+- Variables pour les tests et les essais : `TFT_DATA` (dossier de données), `TFT_ENV` (fichier `.env`), `TFT_PORT` (port), `TFT_RANGS` (rangs analysés), `TFT_PATCH` (patch analysé), `TFT_HORS_LIGNE=1` (pas de journal des patchs depuis Data Dragon), `TFT_SAUVEGARDE_DELAI` (délai avant la première sauvegarde, en ms), `NO_OPEN=1` (aucune fenêtre). `TFT_ELECTRON=1` est posée par Electron pour son serveur.

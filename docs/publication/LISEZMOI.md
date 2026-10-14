@@ -1,6 +1,23 @@
 # Publication de TFT Stats : où on en est
 
 Bilan des recherches du 14/10/2026 et suite des démarches pour rendre l'application disponible au grand public.
+Mis à jour le 15/10/2026. Vue d'ensemble du projet : `ARCHITECTURE.md`, §6.
+
+## Avancement
+
+- [x] Recherches : règles de Riot pour TFT, Overwolf, Microsoft Store, signature du code (14/10)
+- [x] Édition publique `EDITION=publique`, testée et vérifiée dans Electron (14/10, commit 4c830cf)
+- [x] Brouillon de la description du produit pour Riot (14/10)
+- [x] Brouillons de la politique de confidentialité et des conditions d'utilisation (14/10)
+- [ ] **Toi** : compléter les [crochets] de `riot-application.md`
+- [ ] **Toi** : créer le produit sur le portail Riot et demander la clé de production
+- [ ] **Toi** : déclarer dans le portail les adresses du client LoL utilisées (liste dans `riot-application.md`)
+- [ ] Réponse de Riot : clé de production, puis accès à Riot Sign On
+- [ ] **Toi** : choisir un hébergement (et un nom de domaine)
+- [ ] Serveur de collecte et d'analyse, application qui le lit, Riot Sign On
+- [ ] **Toi** : compléter, faire relire et mettre en ligne la politique de confidentialité et les conditions
+- [ ] Paquet MSIX et fiche du Microsoft Store (compte à créer par toi)
+- [ ] Proposition d'application à Overwolf (par toi), puis portage vers ow-electron
 
 ## Fait
 
