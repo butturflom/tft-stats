@@ -172,7 +172,7 @@ h3.section{margin-top:26px}
 .hxin{position:absolute;inset:3px;clip-path:polygon(50% 0,100% 25%,100% 75%,50% 100%,0 75%,0 25%);background:var(--panel);display:grid;place-items:center;overflow:hidden;font-family:var(--f-display);font-weight:700;font-size:.8rem}
 .hxin img{width:100%;height:100%;object-fit:cover}
 .hst{position:absolute;top:-2px;left:50%;transform:translateX(-50%);font-size:.62rem;color:#f5c542;text-shadow:0 0 2px #000,0 0 2px #000;letter-spacing:-1px;z-index:2}
-.hit{position:absolute;bottom:-2px;left:50%;transform:translateX(-50%);display:flex;gap:1px;z-index:2}
+.hit{display:flex;justify-content:center;flex-wrap:wrap;gap:1px;margin-top:3px;max-width:100%}
 .bi{display:inline-grid;place-items:center;width:calc(var(--hw,62px) * .3);height:calc(var(--hw,62px) * .3);min-width:16px;min-height:16px;border-radius:3px;border:1px solid #000;background:var(--panel-2);overflow:hidden;font-size:.5rem}
 .bi img{width:100%;height:100%;object-fit:cover}
 .hnm{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
@@ -378,3 +378,26 @@ td.cpl small{display:block;margin-top:2px}
 .patchlbl{display:inline-flex;align-items:center;gap:6px;font-size:.84rem;color:var(--muted)}
 .patchlbl select{max-width:100%}
 .patchnote{max-width:260px}
+
+/* Listes par pages */
+button.plus{display:block;margin:12px auto;padding:8px 22px}
+tr.ligne-plus td{text-align:center;padding:8px}
+tr.ligne-plus button.plus{margin:0 auto}
+
+/* Sections dépliées d'une carte : marges régulières */
+details.more>.units{padding:4px 14px 14px}
+details.more>.grid2{padding:4px 14px 14px}
+
+/* Alignements et petits écrans */
+details.more>.units,.nivbox .units{align-items:flex-start}
+.barrow .v{white-space:nowrap}
+.block .u{width:66px}
+.ovbody .nivcopy{padding-bottom:10px}
+@media (max-width:760px){
+  .brand b{white-space:nowrap}
+  .scope{display:none}
+  .tabs{scrollbar-width:none;padding:0 12px}
+  .tabs::-webkit-scrollbar{display:none}
+  .barrow{grid-template-columns:96px minmax(0,1fr) 96px}
+  .wrap{padding-left:14px;padding-right:14px}
+}

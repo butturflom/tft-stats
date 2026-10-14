@@ -72,6 +72,11 @@ Collecte du ladder
 - Le rang d'une partie est celui des joueurs au moment où elle a été jouée (relevé
   le plus proche avant la partie, ou jusqu'à 3 jours après).
 
+Images
+- Les icônes des champions viennent du client League of Legends (petites icônes carrées),
+  copiées une fois dans data/icones/. Ouvre le client au moins une fois : sans lui, l'appli
+  télécharge les grandes images de Data Dragon (lentes, à ne charger qu'une fois).
+
 Patch
 - Riot ne donne plus le patch des parties. L'appli tient un journal local (data/patchs.json) :
   elle note la date où elle voit un nouveau patch. Il commence le jour de sa création :

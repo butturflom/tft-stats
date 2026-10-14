@@ -8,7 +8,16 @@ const MIN_ETOILES = 3;                             // plateaux voisins nécessai
 
 // Étoiles qu'on peut raisonnablement avoir à ce niveau, selon le coût du champion
 const etoilesMax = (cout, L) => cout <= 1 ? (L <= 5 ? 2 : 3) : cout === 2 ? (L <= 4 ? 1 : L <= 7 ? 2 : 3) : cout === 3 ? (L <= 6 ? 1 : L <= 9 ? 2 : 3) : cout === 4 ? (L <= 8 ? 1 : 2) : (L <= 9 ? 1 : 2);
-const mediane = l => { const s = [...l].sort((a, b) => a - b); return s[Math.floor((s.length - 1) / 2)]; };
+// Médiane (la plus basse des deux du milieu) d'un histogramme d'étoiles h[étoiles] = nombre de plateaux ; 0 s'il est vide
+function medianeHisto(h) {
+  const n = h.reduce((a, c) => a + c, 0);
+  if (!n) return 0;
+  const cible = Math.floor((n - 1) / 2);
+  let cumul = 0;
+  for (let e = 0; e < h.length; e++) { cumul += h[e]; if (cumul > cible) return e; }
+  return 0;
+}
+const ajouterHisto = (a, b) => { for (let e = 0; e < b.length; e++) a[e] += b[e]; return a; };
 
 // boards : plateaux de la compo ({ lvl, units: [{ id, star, items, cost }] }).
 // plateau : unités porteuses d'objets de la compo ({ id, objets }), pour les objets affichés.
@@ -17,6 +26,13 @@ export function compoParNiveau(boards, { carryId, plateau = [] } = {}) {
   const cout = new Map();
   const total = new Map();
   for (const b of boards) for (const u of b.units) { cout.set(u.id, u.cost); total.set(u.id, (total.get(u.id) || 0) + 1); }
+  // Étoiles de chaque champion, par niveau de plateau : lu une seule fois (histogramme), pas à chaque niveau demandé
+  const histo = new Map();
+  for (const b of boards) for (const u of b.units) {
+    let m = histo.get(u.id); if (!m) histo.set(u.id, m = new Map());
+    let h = m.get(b.lvl); if (!h) m.set(b.lvl, h = [0, 0, 0, 0, 0]);
+    h[Math.min(Math.max(u.star | 0, 0), 4)]++;
+  }
   const objetsDe = new Map(plateau.map(u => [u.id, u.objets || []]));
   // Plus joués d'abord ; à égalité, les plus chers d'abord pour une compo observée, les moins chers pour une reconstitution
   const sorted = (ids, freq, cher = 1) => [...ids].sort((a, b) => (freq.get(b) || 0) - (freq.get(a) || 0) || cher * ((cout.get(b) || 0) - (cout.get(a) || 0)));
@@ -40,9 +56,10 @@ export function compoParNiveau(boards, { carryId, plateau = [] } = {}) {
       source = 'estime'; n = exact.length;
     }
     const unites = ids.map(id => {
-      const proches = boards.filter(b => Math.abs(b.lvl - L) <= 1).flatMap(b => b.units.filter(u => u.id === id).map(u => u.star));
-      const toutes = boards.flatMap(b => b.units.filter(u => u.id === id).map(u => u.star));
-      let etoiles = proches.length >= MIN_ETOILES ? mediane(proches) : toutes.length ? mediane(toutes) : 1;
+      const parNiveau = histo.get(id) || new Map();
+      const proches = [0, 0, 0, 0, 0], toutes = [0, 0, 0, 0, 0];
+      for (const [lvl, h] of parNiveau) { ajouterHisto(toutes, h); if (Math.abs(lvl - L) <= 1) ajouterHisto(proches, h); }
+      let etoiles = proches.reduce((a, c) => a + c, 0) >= MIN_ETOILES ? medianeHisto(proches) : medianeHisto(toutes) || 1;
       // Un niveau reconstitué ne montre pas d'étoiles qu'un joueur n'a pas encore les moyens d'avoir
       if (source === 'estime') etoiles = Math.min(etoiles, etoilesMax(cout.get(id) || 1, L));
       // Objets : ceux de la compo finale, sur le carry dès le niveau 6 et sur les autres porteurs dès le niveau 7
@@ -90,15 +107,19 @@ export function codesDesCompos(compos, planner) {
   return out;
 }
 
-// Réponse du client (« tftchampions-teamplanner.json ») → { '18': { suffixe: 'TFTSet18', codes: { personnage: code } } }
+// Réponse du client (« tftchampions-teamplanner.json ») → { '18': { suffixe: 'TFTSet18', codes: { personnage: code }, icones: { personnage: chemin de l'icône carrée dans le client } } }
 export function lirePlanners(brut) {
   const out = {};
   for (const [cle, liste] of Object.entries(brut || {})) {
     const m = /^TFTSet(\d+)$/.exec(cle);
     if (!m || !Array.isArray(liste)) continue;
-    const codes = {};
-    for (const x of liste) if (x && typeof x.character_id === 'string' && Number.isInteger(x.team_planner_code)) codes[x.character_id] = x.team_planner_code;
-    if (Object.keys(codes).length) out[m[1]] = { suffixe: `TFTSet${m[1]}`, codes };
+    const codes = {}, icones = {};
+    for (const x of liste) {
+      if (!x || typeof x.character_id !== 'string' || !Number.isInteger(x.team_planner_code)) continue;
+      codes[x.character_id] = x.team_planner_code;
+      if (typeof x.squareIconPath === 'string' && x.squareIconPath.startsWith('/lol-game-data/assets/')) icones[x.character_id] = x.squareIconPath;
+    }
+    if (Object.keys(codes).length) out[m[1]] = { suffixe: `TFTSet${m[1]}`, codes, icones };
   }
   return out;
 }

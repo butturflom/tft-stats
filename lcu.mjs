@@ -8,6 +8,7 @@ import { execFile } from 'node:child_process';
 import { DATA } from './lib.mjs';
 import { compact, joueursDe } from './collecter.mjs';
 import { lirePlanners } from './niveaux.mjs';
+import { DOSSIER_ICONES, NOM_ID } from './images.mjs';
 import { ouvrir, ajouterPartie, partieConnue } from './db.mjs';
 
 const LOBBY = path.join(DATA, 'augments-lobby.json');   // { matchId: { placement: [augments] } }
@@ -43,17 +44,18 @@ function fromProcess() {
       });
   });
 }
-function lcuGet(c, p) {
+// Requête GET vers le client LoL local : { statut, corps (Buffer) }
+function lcuRequete(c, p) {
   return new Promise((resolve, reject) => {
     const r = https.request({
       host: '127.0.0.1', port: c.port, path: p, method: 'GET', rejectUnauthorized: false, timeout: 10000,
-      headers: { Authorization: 'Basic ' + Buffer.from('riot:' + c.pass).toString('base64'), Accept: 'application/json' },
+      headers: { Authorization: 'Basic ' + Buffer.from('riot:' + c.pass).toString('base64'), Accept: '*/*' },
     }, res => {
-      let d = '';
-      res.on('data', x => { d += x; });
+      const morceaux = [];
+      res.on('data', x => morceaux.push(x));
       res.on('end', () => {
         if (res.statusCode >= 400) return reject(new Error('client ' + res.statusCode));
-        try { resolve(JSON.parse(d)); } catch { resolve(null); }
+        resolve({ statut: res.statusCode, corps: Buffer.concat(morceaux) });
       });
     });
     r.on('error', reject);
@@ -61,6 +63,11 @@ function lcuGet(c, p) {
     r.end();
   });
 }
+async function lcuGet(c, p) {
+  const { corps } = await lcuRequete(c, p);
+  try { return JSON.parse(corps.toString('utf8')); } catch { return null; }
+}
+const lcuGetBin = async (c, p) => (await lcuRequete(c, p)).corps;
 
 // Parcourt la réponse du client et en extrait chaque partie : id, participants, augments.
 const augList = v => (Array.isArray(v) ? v.map(x => (typeof x === 'string' ? x : x && (x.id || x.name || x.apiName))).filter(x => typeof x === 'string' && x) : []);
@@ -93,13 +100,45 @@ function findGames(root) {
 // Sans eux, l'interface ne peut pas fabriquer de code d'équipe à importer dans TFT.
 export async function majPlanner(c, lire = lcuGet) {
   const actuel = readJ(PLANNER, null);
-  if (actuel && actuel.sets && Date.now() - actuel.maj < PLANNER_VALIDITE) return false;
+  // Un fichier d'avant les icônes (sans « icones ») est relu tout de suite
+  if (actuel && actuel.sets && Date.now() - actuel.maj < PLANNER_VALIDITE && Object.values(actuel.sets).every(x => x.icones)) return false;
   if (Date.now() - plannerEssai < 3600e3) return false;
   plannerEssai = Date.now();
   const sets = lirePlanners(await lire(c, '/lol-game-data/assets/v1/tftchampions-teamplanner.json'));
   if (!Object.keys(sets).length) return false;
   fs.writeFileSync(PLANNER, JSON.stringify({ maj: Date.now(), sets }));
   return true;
+}
+
+// Icônes carrées des champions (128×128, ≈ 8 Ko), lues dans le client et gardées dans data/icones/ : l'interface les sert
+// à la place des grandes images de Data Dragon (≈ 500 Ko). Seules les icônes manquantes sont téléchargées.
+export async function majIcones(c, lire = lcuGetBin, dir = DATA) {
+  const planner = readJ(PLANNER, null);
+  if (!planner || !planner.sets) return 0;
+  const dossier = DOSSIER_ICONES(dir);
+  const manque = [];
+  for (const set of Object.values(planner.sets)) {
+    for (const [id, chemin] of Object.entries(set.icones || {})) {
+      if (NOM_ID.test(id) && !fs.existsSync(path.join(dossier, id + '.jpg'))) manque.push([id, chemin]);
+    }
+  }
+  if (!manque.length) return 0;
+  fs.mkdirSync(dossier, { recursive: true });
+  let ok = 0;
+  const file = manque.slice();
+  const tache = async () => {
+    for (let x = file.shift(); x; x = file.shift()) {
+      try {
+        const corps = await lire(c, x[1]);
+        if (!corps || corps.length < 100) continue;
+        fs.writeFileSync(path.join(dossier, x[0] + '.jpg.tmp'), corps);
+        fs.renameSync(path.join(dossier, x[0] + '.jpg.tmp'), path.join(dossier, x[0] + '.jpg'));
+        ok++;
+      } catch {}
+    }
+  };
+  await Promise.all([tache(), tache(), tache(), tache()]);
+  return ok;
 }
 
 // Partie à annoncer après un passage : celle apparue en tête de l'historique du client depuis le passage précédent,
@@ -122,6 +161,7 @@ async function poll(onNew, onGame) {
     const hist = await lcuGet(c, `/lol-match-history/v1/products/tft/${puuid}/matches?begin=0&count=20`);
     lcuState.connecte = true; lcuState.vu = Date.now();
     await majPlanner(c).catch(() => {});
+    await majIcones(c).catch(() => {});
     const games = findGames(hist);
     lcuState.parties = games.length;
     if (games[0] && !fs.existsSync(SAMPLE)) { try { fs.writeFileSync(SAMPLE, JSON.stringify(games[0].raw, null, 1)); } catch {} }

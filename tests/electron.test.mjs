@@ -157,3 +157,34 @@ test('serveur sous Electron : fenêtres et overlay demandés par messages, posit
   s.enfant.disconnect();
   assert.equal(await fin(s.enfant), 0);
 });
+
+test('serveur : stats.json compressé à la demande, images servies depuis le disque, aucun accès hors du dossier d\'images', async () => {
+  const donnees = path.join(dir, 'data');
+  fs.mkdirSync(path.join(donnees, 'icones'), { recursive: true });
+  const stats = { format: 14, compos: [], remplissage: 'x'.repeat(20000) };
+  fs.writeFileSync(path.join(donnees, 'stats.json'), JSON.stringify(stats));
+  fs.writeFileSync(path.join(donnees, 'noms.json'), JSON.stringify({ version: '16.1.1', unitImg: { DA_Test: 'TFT18_Test_splash.TFT_Set18.png' } }));
+  fs.writeFileSync(path.join(donnees, 'icones', 'DA_Test.jpg'), Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
+  const port = await portLibre();
+  const s = lancer(port);
+  await s.attendre('pret');
+  const url = p => `http://127.0.0.1:${port}${p}`;
+  // Sans « Accept-Encoding » : le JSON brut ; avec : le même contenu compressé (le navigateur le décompresse seul)
+  const brut = await fetch(url('/api/stats'), { headers: { 'Accept-Encoding': 'identity' } });
+  assert.equal(brut.headers.get('content-encoding'), null);
+  assert.equal((await brut.json()).remplissage.length, 20000);
+  const http = await import('node:http');
+  const gz = await new Promise((ok, ko) => http.get(url('/api/stats'), { headers: { 'Accept-Encoding': 'gzip' } }, r => { const c = []; r.on('data', x => c.push(x)); r.on('end', () => ok({ enc: r.headers['content-encoding'], corps: Buffer.concat(c) })); }).on('error', ko));
+  assert.equal(gz.enc, 'gzip');
+  assert.ok(gz.corps.length < 2000);
+  assert.deepEqual(JSON.parse((await import('node:zlib')).gunzipSync(gz.corps)).format, 14);
+  // Images : l'icône carrée du client, avec un cache navigateur ; rien en dehors du dossier d'images
+  const img = await fetch(url('/img/u/TFT18_Test_splash.TFT_Set18.png'));
+  assert.equal(img.status, 200);
+  assert.equal(img.headers.get('content-type'), 'image/jpeg');
+  assert.match(img.headers.get('cache-control'), /max-age=\d+/);
+  assert.equal((await img.arrayBuffer()).byteLength, 4);
+  for (const p of ['/img/dd/tft-item/..%2f..%2fnoms.json', '/img/u/..%2fnoms.json', '/img/dd/inconnu/a.png', '/img/']) assert.equal((await fetch(url(p))).status, 404, p);
+  s.enfant.kill();
+  await fin(s.enfant);
+});

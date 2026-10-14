@@ -109,11 +109,11 @@ test('codes de toutes les compos : plateau et chaque niveau', () => {
 
 test('réponse du client : codes par set, entrées invalides ignorées', () => {
   const brut = {
-    TFTSet17: [{ character_id: 'A', team_planner_code: 3 }],
+    TFTSet17: [{ character_id: 'A', team_planner_code: 3, squareIconPath: '/lol-game-data/assets/ASSETS/A.jpg' }],
     TFTSet18: [{ character_id: 'DA_18_Ornn', team_planner_code: 1026 }, { character_id: 'X' }, null, { character_id: 'Y', team_planner_code: 'z' }],
     Autre: [{ character_id: 'Z', team_planner_code: 9 }],
   };
-  assert.deepEqual(lirePlanners(brut), { 17: { suffixe: 'TFTSet17', codes: { A: 3 } }, 18: { suffixe: 'TFTSet18', codes: { DA_18_Ornn: 1026 } } });
+  assert.deepEqual(lirePlanners(brut), { 17: { suffixe: 'TFTSet17', codes: { A: 3 }, icones: { A: '/lol-game-data/assets/ASSETS/A.jpg' } }, 18: { suffixe: 'TFTSet18', codes: { DA_18_Ornn: 1026 }, icones: {} } });
   assert.deepEqual(lirePlanners(null), {});
   assert.deepEqual(lirePlanners({ TFTSet18: [] }), {});
 });

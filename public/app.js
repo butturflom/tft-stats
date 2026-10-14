@@ -25,18 +25,19 @@ const rangsChoisis = r => { const s = String(r || '').trim().toUpperCase(); retu
 
 let STATE = null, STATS = null, ICONS = {}, statsVer = null, TAB = 'compos';
 let AUG = { version: null, augments: {} }, augVer = null, EDITING = false;
-const UI = { nl: 9, nsort: 'avgAdj', nmin: 10, nq: '', aq: '', q: '', minN: 100, sort: 'top1Adj', tq: '', star: 'all', uq: '' };
+const UI = { cnt: 20, ncnt: 40, nl: 9, nsort: 'avgAdj', nmin: 10, nq: '', aq: '', q: '', minN: 100, sort: 'top1Adj', tq: '', star: 'all', uq: '' };
 try { const t = localStorage.getItem('tft-tab'); if (t && !['objets', 'sites'].includes(t)) TAB = t; } catch {}
 
 // ---- Icônes ----
-const ddUrl = (kind, img) => (img && STATS && STATS.ddragon) ? `https://ddragon.leagueoflegends.com/cdn/${STATS.ddragon}/img/${kind}/${encodeURIComponent(img)}` : null;
+// Les images passent par l'appli (cache sur disque, icônes carrées légères des champions) et non plus par Data Dragon
+const ddUrl = (kind, img) => img ? (kind === 'tft-champion' ? `/img/u/${encodeURIComponent(img)}` : `/img/dd/${kind}/${encodeURIComponent(img)}`) : null;
 // ---- Augments (noms officiels FR) ----
 const prettyAug = id => String(id).replace(/^DA_(18_)?/, '').replace(/PlusPlus$/, '++').replace(/Plus$/, '+').replace(/_/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2');
 const augInfo = id => AUG.augments[id] || { nom: prettyAug(id), img: null, desc: '' };
-const augImg = a => (a.img && AUG.version) ? `https://ddragon.leagueoflegends.com/cdn/${AUG.version}/img/tft-augment/${encodeURIComponent(a.img)}` : null;
+const augImg = a => a.img ? `/img/dd/tft-augment/${encodeURIComponent(a.img)}` : null;
 function augChip(id, small) {
   const a = augInfo(id), u = augImg(a);
-  return `<button type="button" class="aug${small ? ' sm' : ''}" data-aug="${esc(id)}" title="${esc(a.nom + (a.desc ? ' — ' + a.desc : ''))}">${u ? `<img src="${u}" alt="" loading="lazy">` : ''}<span>${esc(a.nom)}</span></button>`;
+  return `<button type="button" class="aug${small ? ' sm' : ''}" data-aug="${esc(id)}" title="${esc(a.nom + (a.desc ? ' — ' + a.desc : ''))}">${u ? `<img src="${u}" alt="" loading="lazy" decoding="async">` : ''}<span>${esc(a.nom)}</span></button>`;
 }
 const augByName = () => { const m = new Map(); for (const [id, a] of Object.entries(AUG.augments)) m.set(norm(a.nom), id); return m; };
 async function loadAug() {
@@ -46,9 +47,9 @@ async function loadAug() {
 }
 
 function unitPic(nom, img) {
-  if (ICONS[nom]) return `<img src="data:image/webp;base64,${ICONS[nom]}" alt="" loading="lazy">`;
+  if (ICONS[nom]) return `<img src="data:image/webp;base64,${ICONS[nom]}" alt="" loading="lazy" decoding="async">`;
   const u = ddUrl('tft-champion', img);
-  if (u) return `<img src="${u}" alt="" loading="lazy" onerror="this.replaceWith(document.createTextNode('${esc(nom.slice(0, 3))}'))">`;
+  if (u) return `<img src="${u}" alt="" loading="lazy" decoding="async" onerror="this.replaceWith(document.createTextNode('${esc(nom.slice(0, 3))}'))">`;
   return esc(nom.slice(0, 3));
 }
 function unitTile(nom, { img, cost, rank, sub } = {}) {
@@ -57,7 +58,7 @@ function unitTile(nom, { img, cost, rank, sub } = {}) {
 }
 function itemIcon(o) {
   const u = ddUrl('tft-item', o.img);
-  return `<span class="it" title="${esc(o.nom)}">${u ? `<img src="${u}" alt="" loading="lazy">` : esc(o.nom.slice(0, 3))}</span>`;
+  return `<span class="it" title="${esc(o.nom)}">${u ? `<img src="${u}" alt="" loading="lazy" decoding="async">` : esc(o.nom.slice(0, 3))}</span>`;
 }
 
 // ---- En-tête : état de la collecte ----
@@ -147,7 +148,7 @@ function patchCourantHtml() {
 function factsLine() {
   if (!STATS) return '';
   const d = iso => new Date(iso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
-  return `<div class="facts"><span><b>${int(STATS.parties)}</b> parties</span><span><b>${int(STATS.plateaux)}</b> plateaux</span><span>${STATS.patch && STATS.patch !== "?" ? `patch <b>${esc(STATS.patch)}</b>` : `set <b>${esc(STATS.set)}</b>`}${patchCourantHtml()}</span><span>du ${d(STATS.periode.debut)} au ${d(STATS.periode.fin)}</span><span>contrôle moyenne <b>${f2(STATS.controleMoyenne)}</b></span><span>analyse ${ago(STATS.genere)}</span></div>`;
+  return `<div class="facts"><span><b>${int(STATS.parties)}</b> parties</span><span><b>${int(STATS.plateaux)}</b> plateaux</span><span>${STATS.patch && STATS.patch !== "?" ? `patch <b>${esc(STATS.patch)}</b>` : `set <b>${esc(STATS.set)}</b>`}</span>${patchCourantHtml()}<span>du ${d(STATS.periode.debut)} au ${d(STATS.periode.fin)}</span><span>contrôle moyenne <b>${f2(STATS.controleMoyenne)}</b></span><span>analyse ${ago(STATS.genere)}</span></div>`;
 }
 function noData(msg) {
   return `<div class="empty">${msg || 'Pas encore de données.'}<br><br>${STATE && STATE.running ? 'La collecte est en cours : les résultats apparaîtront ici dès la fin de l\'analyse.' : 'Clique sur « Mettre à jour » pour lancer une collecte.'}</div>`;
@@ -157,7 +158,7 @@ const uIdx = id => (STATS && STATS.unitsIndex && STATS.unitsIndex[id]) || null;
 const iIdx = id => (STATS && STATS.itemsIndex && STATS.itemsIndex[id]) || { nom: id, img: null };
 function itemPic(id) {
   const it = iIdx(id), u = ddUrl('tft-item', it.img);
-  return `<span class="bi" title="${esc(it.nom)}">${u ? `<img src="${u}" alt="${esc(it.nom)}" loading="lazy">` : esc(it.nom.slice(0, 2))}</span>`;
+  return `<span class="bi" title="${esc(it.nom)}">${u ? `<img src="${u}" alt="${esc(it.nom)}" loading="lazy" decoding="async">` : esc(it.nom.slice(0, 2))}</span>`;
 }
 // units : [{ id, etoiles, objets }], porteurs d'objets en premier
 function boardHtml(units) {
@@ -239,30 +240,10 @@ document.addEventListener('click', async e => {
 });
 
 let OUVRIR = null;   // compo dont la section par niveau doit s'ouvrir au prochain affichage
-function compCard(c, i) {
-  const badges = [];
-  if (c.n < 100) badges.push('<span class="badge b-mid">Peu de parties</span>');
-  const core = c.noyau.filter(u => u.freq >= 0.5).slice(0, 9);
-  const carryFirst = [...core.filter(u => u.id === c.carryId), ...core.filter(u => u.id !== c.carryId)];
-  const items = c.trioCarry ? c.trioCarry.objets : c.objetsCarry.slice(0, 3);
+function synergiesHtml(c) {
   const maxC = Math.max(...c.contestation.map(x => x.top1 || 0), 0.01);
   const contLbl = { '0': 'Seul sur ce carry', '1': '1 autre joueur', '2+': '2 autres ou plus' };
-  return `<article class="card">
-    <div class="head">
-      <span class="rank">#${i + 1}</span>
-      <div class="title"><h3>${esc(c.nom)}</h3>${badges.join('')}${suivreBtn('our', c.cle)}</div>
-      <div class="metrics">
-        <div class="m big"><b>${pct(c.top1Adj)}</b><span>1re place</span></div>
-        <div class="m"><b>${pct(c.top4, 0)}</b><span>top 4</span></div>
-        <div class="m"><b>${f2(c.avg)}<small> ±${f2(c.ci)}</small></b><span>place moy.</span></div>
-        <div class="m"><b>${int(c.n)}</b><span>plateaux</span></div>
-      </div>
-      <div class="units">${carryFirst.map(u => unitTile(u.nom, { img: u.img, cost: u.cout, rank: u.id === c.carryId ? 1 : 0 })).join('')}
-        <div class="items" title="Objets du carry">${items.map(itemIcon).join('')}</div></div>
-    </div>
-    ${c.plateau && c.plateau.length ? `<details class="more"><summary>Plateau et objets</summary>${boardHtml(c.plateau)}</details>` : ''}
-    ${c.niveaux && c.niveaux.length ? `<details class="more"${(STATE && STATE.suivie && STATE.suivie.cle === c.cle) || OUVRIR === c.cle ? ' open' : ''}><summary>Construire la compo par niveau (4 à 10)</summary><div class="nivwrap">${niveauxHtml(c, false)}</div></details>` : ''}
-    <details class="more"><summary>Synergies, contestation et bascules</summary>
+  return `
       <div class="grid2">
         <div class="block"><h4>Noyau de la compo</h4>
           <p>Part des plateaux qui jouent chaque champion, et part chez ceux qui finissent 1ers.</p>
@@ -283,7 +264,30 @@ function compCard(c, i) {
             ${c.duels.faible.length ? `<p>Finit derrière : ${c.duels.faible.map(d => `${esc(d.contre)} (${pct(d.devant, 0)}, ${d.n})`).join(' · ')}</p>` : ''}` : ''}
         </div>
       </div>
-    </details>
+`;
+}
+function compCard(c, i) {
+  const badges = [];
+  if (c.n < 100) badges.push('<span class="badge b-mid">Peu de parties</span>');
+  const core = c.noyau.filter(u => u.freq >= 0.5).slice(0, 9);
+  const carryFirst = [...core.filter(u => u.id === c.carryId), ...core.filter(u => u.id !== c.carryId)];
+  const items = c.trioCarry ? c.trioCarry.objets : c.objetsCarry.slice(0, 3);
+  return `<article class="card">
+    <div class="head">
+      <span class="rank">#${i + 1}</span>
+      <div class="title"><h3>${esc(c.nom)}</h3>${badges.join('')}${suivreBtn('our', c.cle)}</div>
+      <div class="metrics">
+        <div class="m big"><b>${pct(c.top1Adj)}</b><span>1re place</span></div>
+        <div class="m"><b>${pct(c.top4, 0)}</b><span>top 4</span></div>
+        <div class="m"><b>${f2(c.avg)}<small> ±${f2(c.ci)}</small></b><span>place moy.</span></div>
+        <div class="m"><b>${int(c.n)}</b><span>plateaux</span></div>
+      </div>
+      <div class="units">${carryFirst.map(u => unitTile(u.nom, { img: u.img, cost: u.cout, rank: u.id === c.carryId ? 1 : 0 })).join('')}
+        <div class="items" title="Objets du carry">${items.map(itemIcon).join('')}</div></div>
+    </div>
+    ${c.plateau && c.plateau.length ? `<details class="more" data-lazy="plateau" data-cle="${esc(c.cle)}"><summary>Plateau et objets</summary></details>` : ''}
+    ${c.niveaux && c.niveaux.length ? `<details class="more" data-lazy="niveaux" data-cle="${esc(c.cle)}"${(STATE && STATE.suivie && STATE.suivie.cle === c.cle) || OUVRIR === c.cle ? ' open' : ''}><summary>Construire la compo par niveau (4 à 10)</summary></details>` : ''}
+    <details class="more" data-lazy="synergies" data-cle="${esc(c.cle)}"><summary>Synergies, contestation et bascules</summary></details>
   </article>`;
 }
 // Bilan de qualité des données (section qualite de stats.json).
@@ -296,14 +300,76 @@ function qualiteLine() {
   return `<p><small class="muted">${q.statut === 'ok' ? '✓' : '⚠'} Données : ${int(p.retenues)} parties retenues sur ${int(p.lues)} lues${ecartees}${doublons} · place moyenne ${f2(q.controle.moyenne)} (attendu ${f2(q.controle.attendu)}) · seuil ${q.seuils.minN} plateaux</small></p>`;
 }
 
-function renderCompos() {
-  const el = $('#tab-compos');
-  if (!STATS) { el.innerHTML = `<h2>Mes compos</h2>${noData()}`; return; }
+// ---- Listes longues : affichage par pages, recherche différée, contenu des sections chargé à l'ouverture ----
+const PAGE = 20, PAGE_NIVEAU = 40;
+const debounce = (f, ms = 160) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => f(...a), ms); }; };
+let COMPOS_LISTE = [], NIVEAU_LIGNES = [], plusObs = null;
+// Texte de recherche d'une compo (nom et champions), calculé une fois par compo
+const texteRecherche = c => c._rech || (c._rech = norm(c.nom + ' ' + c.noyau.map(u => u.nom).join(' ')));
+const compDe = cle => STATS && STATS.compos.find(x => x.cle === cle);
+
+// Sections d'une carte : leur contenu n'est construit qu'à la première ouverture (153 cartes × 3 sections = des milliers de noeuds en moins)
+const LAZY = {
+  plateau: c => boardHtml(c.plateau),
+  niveaux: c => `<div class="nivwrap">${niveauxHtml(c, false)}</div>`,
+  synergies: c => synergiesHtml(c),
+};
+function remplir(d) {
+  if (d.dataset.rempli) return;
+  const c = compDe(d.dataset.cle), f = LAZY[d.dataset.lazy];
+  if (!c || !f) return;
+  d.dataset.rempli = '1';
+  d.insertAdjacentHTML('beforeend', f(c));
+}
+const hydrater = racine => racine.querySelectorAll('details[data-lazy][open]').forEach(remplir);
+document.addEventListener('toggle', e => { const d = e.target; if (d && d.matches && d.matches('details[data-lazy]') && d.open) remplir(d); }, true);
+
+// Bouton « Afficher plus » : charge la page suivante, aussi tout seul quand on arrive en bas de la liste
+function observerPlus() {
+  if (plusObs) plusObs.disconnect();
+  const b = document.querySelector('button.plus');
+  if (!b || typeof IntersectionObserver === 'undefined') return;
+  plusObs = new IntersectionObserver(es => { if (es.some(x => x.isIntersecting)) b.click(); }, { rootMargin: '700px' });
+  plusObs.observe(b);
+}
+const plusHtml = (type, reste) => reste > 0 ? `<button type="button" class="ghost plus" data-plus="${type}">Afficher plus (${int(reste)} restante${reste > 1 ? 's' : ''})</button>` : '';
+document.addEventListener('click', e => {
+  const b = e.target.closest && e.target.closest('button.plus'); if (!b) return;
+  if (b.dataset.plus === 'compos') {
+    const avant = UI.cnt; UI.cnt += PAGE;
+    b.insertAdjacentHTML('beforebegin', COMPOS_LISTE.slice(avant, UI.cnt).map((c, j) => compCard(c, avant + j)).join(''));
+    b.outerHTML = plusHtml('compos', COMPOS_LISTE.length - UI.cnt);
+  } else if (b.dataset.plus === 'niveau') {
+    const avant = UI.ncnt; UI.ncnt += PAGE_NIVEAU;
+    const ligne = b.closest('tr');   // le bouton est dans une ligne du tableau, après les lignes déjà affichées
+    if (ligne) ligne.insertAdjacentHTML('beforebegin', NIVEAU_LIGNES.slice(avant, UI.ncnt).map((x, j) => ligneNiveau(x, avant + j)).join(''));
+    if (NIVEAU_LIGNES.length - UI.ncnt > 0) b.outerHTML = plusHtml('niveau', NIVEAU_LIGNES.length - UI.ncnt);
+    else if (ligne) ligne.remove();
+  }
+  observerPlus();
+});
+
+function composFiltrees() {
   const q = norm(UI.q);
   const key = { top1Adj: c => -c.top1Adj, top4: c => -c.top4, avgAdj: c => c.avgAdj, n: c => -c.n }[UI.sort];
   // Jamais de compo sous le seuil MIN_N de l'analyse (30 plateaux), même si le filtre est plus bas
   const minN = Math.max(UI.minN, ((STATS.qualite && STATS.qualite.seuils) || {}).minN || 30);
-  const list = STATS.compos.filter(c => c.n >= minN && (!q || norm(c.nom + ' ' + c.noyau.map(u => u.nom).join(' ')).includes(q))).sort((a, b) => key(a) - key(b));
+  return STATS.compos.filter(c => c.n >= minN && (!q || texteRecherche(c).includes(q))).sort((a, b) => key(a) - key(b));
+}
+// Remplace seulement la liste (pas la barre d'outils) : la frappe dans la recherche reste fluide, le focus n'est pas touché
+function majListeCompos() {
+  const zone = $('#listeCompos'); if (!zone) return;
+  COMPOS_LISTE = composFiltrees();
+  const n = Math.min(UI.cnt, COMPOS_LISTE.length);
+  zone.innerHTML = COMPOS_LISTE.length
+    ? COMPOS_LISTE.slice(0, n).map(compCard).join('') + plusHtml('compos', COMPOS_LISTE.length - n)
+    : '<div class="empty">Aucune compo ne correspond. Baisse la taille minimale ou attends plus de parties.</div>';
+  hydrater(zone); observerPlus();
+}
+function renderCompos() {
+  const el = $('#tab-compos');
+  if (!STATS) { el.innerHTML = `<h2>Mes compos</h2>${noData()}`; return; }
+  UI.cnt = PAGE;
   el.innerHTML = `<h2>Mes compos · Argent–Or EUW</h2>
     <p class="lead">Calculé sur tes propres parties collectées via l'API Riot. Le taux de 1re place est corrigé pour les compos peu jouées : il faut beaucoup de parties pour qu'un chiffre spectaculaire soit crédible. La marge (±) indique la précision de la place moyenne.</p>
     ${qualiteLine()}
@@ -314,11 +380,13 @@ function renderCompos() {
       <select id="minN" aria-label="Taille minimale">${[[30, '30 plateaux et plus'], [100, '100 plateaux et plus'], [300, '300 plateaux et plus']].map(([v, l]) => `<option value="${v}" ${UI.minN == v ? 'selected' : ''}>${l}</option>`).join('')}</select>
       <select id="sort" aria-label="Trier">${[['top1Adj', 'Plus de 1res places'], ['top4', 'Plus de top 4'], ['avgAdj', 'Meilleure place moyenne'], ['n', 'Plus jouées']].map(([v, l]) => `<option value="${v}" ${UI.sort === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
     </div>
-    <div class="list">${list.length ? list.map(compCard).join('') : '<div class="empty">Aucune compo ne correspond. Baisse la taille minimale ou attends plus de parties.</div>'}</div>`;
+    <div class="list" id="listeCompos"></div>`;
+  majListeCompos();
   OUVRIR = null;
-  $('#q').oninput = e => { UI.q = e.target.value; const pos = e.target.selectionStart; renderCompos(); const n = $('#q'); n.focus(); n.setSelectionRange(pos, pos); };
-  $('#minN').onchange = e => { UI.minN = Number(e.target.value); renderCompos(); };
-  $('#sort').onchange = e => { UI.sort = e.target.value; renderCompos(); };
+  const rechercher = debounce(() => { UI.cnt = PAGE; majListeCompos(); });
+  $('#q').oninput = e => { UI.q = e.target.value; rechercher(); };
+  $('#minN').onchange = e => { UI.minN = Number(e.target.value); UI.cnt = PAGE; majListeCompos(); };
+  $('#sort').onchange = e => { UI.sort = e.target.value; UI.cnt = PAGE; majListeCompos(); };
 }
 
 // ---- Onglet : Classement par niveau ----
@@ -331,6 +399,17 @@ function compoAuNiveau(c, niveau) {
   const tri = n.unites.slice().sort((a, b) => ((uIdx(a.id) || {}).cout || 0) - ((uIdx(b.id) || {}).cout || 0));
   return boardHtml(tri.map(u => ({ id: u.id, etoiles: u.etoiles, objets: [] }))) + (n.source === 'estime' ? '<small class="muted">composition reconstituée</small>' : '');
 }
+// Une ligne du classement : le tableau est construit par pages, comme la liste des compos
+function ligneNiveau({ c, s }, i) {
+  const ecart = x => `<span class="${x < -0.05 ? 'good' : x > 0.05 ? 'bad' : ''}">${x > 0 ? '+' : x < 0 ? '−' : ''}${f2(Math.abs(x))}</span>`;
+  const g = (STATS.niveauxGlobal || {})[UI.nl];
+  return `<tr><td class="n">${i + 1}</td><td class="cpl" title="${esc(c.nom)}">${compoAuNiveau(c, UI.nl)}</td><td class="n">${int(s.n)}</td><td class="n">${pct(s.n / g.plateaux)}</td><td class="n">${pct(s.top1Adj)}</td><td class="n">${pct(s.top4, 0)}</td><td class="n">${f2(s.avg)} <small class="muted">±${f2(s.ci)}</small></td><td class="n">${ecart(s.ecart)}</td><td><button type="button" class="ghost mini-btn" data-voir="${esc(c.cle)}" title="Ouvre la compo, à ce niveau">Voir la compo</button></td></tr>`;
+}
+function corpsNiveauHtml(dispo) {
+  if (!NIVEAU_LIGNES.length) return `<tr><td colspan="9"><div class="empty">Aucune compo n'a assez de plateaux à ce niveau avec cette taille minimale.${dispo ? ` ${dispo} compo${dispo > 1 ? 's ont' : ' a'} au moins 1 plateau fini au niveau ${UI.nl} : baisse la taille minimale.` : ''}</div></td></tr>`;
+  const n = Math.min(UI.ncnt, NIVEAU_LIGNES.length);
+  return NIVEAU_LIGNES.slice(0, n).map(ligneNiveau).join('') + (n < NIVEAU_LIGNES.length ? `<tr class="ligne-plus"><td colspan="9">${plusHtml('niveau', NIVEAU_LIGNES.length - n)}</td></tr>` : '');
+}
 function renderClassementNiveaux() {
   const el = $('#tab-niveaux');
   if (!STATS) { el.innerHTML = `<h2>Classement par niveau</h2>${noData()}`; return; }
@@ -342,7 +421,6 @@ function renderClassementNiveaux() {
   const lignes = STATS.compos.filter(c => c.parNiveau && c.parNiveau[UI.nl] && c.parNiveau[UI.nl].n >= UI.nmin && (!q || norm(c.nom + ' ' + c.noyau.map(u => u.nom).join(' ')).includes(q)))
     .map(c => ({ c, s: c.parNiveau[UI.nl] })).sort((a, b) => sens * (cle(a.s) - cle(b.s)) || b.s.n - a.s.n);
   const dispo = STATS.compos.filter(c => c.parNiveau && c.parNiveau[UI.nl]).length;
-  const ecart = x => `<span class="${x < -0.05 ? 'good' : x > 0.05 ? 'bad' : ''}">${x > 0 ? '+' : x < 0 ? '−' : ''}${f2(Math.abs(x))}</span>`;
   el.innerHTML = `<h2>Classement par niveau</h2>
     <p class="lead">Chaque compo est jugée sur les seuls plateaux qui ont fini <b>au niveau choisi</b>. Le niveau de fin dépend de la survie (un joueur éliminé tôt est au niveau 6), donc les chiffres ne se comparent qu'<b>entre compos du même niveau</b> : la colonne « Écart » dit de combien la compo fait mieux (−) ou moins bien (+) que la moyenne des plateaux de ce niveau.</p>
     <div class="nivbar" role="tablist" aria-label="Niveau">${niveaux.map(l => `<button type="button" role="tab" class="niv${l === UI.nl ? ' on' : ''}" aria-selected="${l === UI.nl}" data-nl="${l}">Niveau ${l}</button>`).join('')}</div>
@@ -354,11 +432,15 @@ function renderClassementNiveaux() {
       <select id="nsort" aria-label="Trier">${[['avgAdj', 'Meilleure place moyenne'], ['top1Adj', 'Plus de 1res places'], ['top4', 'Plus de top 4'], ['n', 'Plus jouées à ce niveau']].map(([v, l]) => `<option value="${v}" ${UI.nsort === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
     </div>
     <div class="tablewrap"><table><thead><tr><th class="n">#</th><th>Composition au niveau ${UI.nl}</th><th class="n">Plateaux</th><th class="n">Part du niveau</th><th class="n">1re place</th><th class="n">Top 4</th><th class="n">Place moy.</th><th class="n" title="Place moyenne corrigée (retour à la moyenne du niveau) moins la moyenne du niveau">Écart</th><th></th></tr></thead>
-    <tbody>${lignes.length ? lignes.map(({ c, s }, i) => `<tr><td class="n">${i + 1}</td><td class="cpl" title="${esc(c.nom)}">${compoAuNiveau(c, UI.nl)}</td><td class="n">${int(s.n)}</td><td class="n">${pct(s.n / g.plateaux)}</td><td class="n">${pct(s.top1Adj)}</td><td class="n">${pct(s.top4, 0)}</td><td class="n">${f2(s.avg)} <small class="muted">±${f2(s.ci)}</small></td><td class="n">${ecart(s.ecart)}</td><td><button type="button" class="ghost mini-btn" data-voir="${esc(c.cle)}" title="Ouvre la compo, à ce niveau">Voir la compo</button></td></tr>`).join('') : `<tr><td colspan="9"><div class="empty">Aucune compo n'a assez de plateaux à ce niveau avec cette taille minimale.${dispo ? ` ${dispo} compo${dispo > 1 ? 's ont' : ' a'} au moins 1 plateau fini au niveau ${UI.nl} : baisse la taille minimale.` : ''}</div></td></tr>`}</tbody></table></div>`;
-  el.querySelectorAll('[data-nl]').forEach(b => b.onclick = () => { UI.nl = Number(b.dataset.nl); renderClassementNiveaux(); });
-  $('#nq').oninput = e => { UI.nq = e.target.value; const pos = e.target.selectionStart; renderClassementNiveaux(); const n = $('#nq'); n.focus(); n.setSelectionRange(pos, pos); };
-  $('#nmin').onchange = e => { UI.nmin = Number(e.target.value); renderClassementNiveaux(); };
-  $('#nsort').onchange = e => { UI.nsort = e.target.value; renderClassementNiveaux(); };
+    <tbody id="corpsNiveau"></tbody></table></div>`;
+  NIVEAU_LIGNES = lignes; UI.ncnt = Math.max(UI.ncnt, PAGE_NIVEAU);
+  $('#corpsNiveau').innerHTML = corpsNiveauHtml(dispo);
+  el.querySelectorAll('[data-nl]').forEach(b => b.onclick = () => { UI.nl = Number(b.dataset.nl); UI.ncnt = PAGE_NIVEAU; renderClassementNiveaux(); });
+  const chercher = debounce(() => { UI.ncnt = PAGE_NIVEAU; renderClassementNiveaux(); const n = $('#nq'); if (n) { n.focus(); n.setSelectionRange(n.value.length, n.value.length); } });
+  $('#nq').oninput = e => { UI.nq = e.target.value; chercher(); };
+  $('#nmin').onchange = e => { UI.nmin = Number(e.target.value); UI.ncnt = PAGE_NIVEAU; renderClassementNiveaux(); };
+  $('#nsort').onchange = e => { UI.nsort = e.target.value; UI.ncnt = PAGE_NIVEAU; renderClassementNiveaux(); };
+  observerPlus();
 }
 // « Voir la compo » : l'onglet Mes compos filtré sur cette compo, section par niveau ouverte au niveau choisi
 document.addEventListener('click', e => {
@@ -376,7 +458,7 @@ function renderSynergies() {
   const tq = norm(UI.tq), uq = norm(UI.uq);
   const traits = STATS.traits.filter(t => !tq || norm(t.trait).includes(tq)).slice(0, 120);
   const units = STATS.unites.filter(u => (UI.star === 'all' || u.etoiles == UI.star) && (!uq || norm(u.unite).includes(uq))).slice(0, 150);
-  const traitPic = t => { const u = ddUrl('tft-trait', t.img); return u ? `<img src="${u}" alt="" loading="lazy">` : ''; };
+  const traitPic = t => { const u = ddUrl('tft-trait', t.img); return u ? `<img src="${u}" alt="" loading="lazy" decoding="async">` : ''; };
   el.innerHTML = `<h2>Synergies</h2>
     <p class="lead">Ce qui marche dans tes lobbys, trait par trait et champion par champion. Sers-t'en pour choisir quoi garder quand ta compo est contestée ou que tes objets ne collent pas.</p>
     <div class="section"><h3>Effet de la contestation</h3>

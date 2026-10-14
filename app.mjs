@@ -11,7 +11,9 @@ import { exec, execFile, spawn } from 'node:child_process';
 import { ROOT, DATA, loadEnv, updateEnv, loadAugments, Riot } from './lib.mjs';
 import { startLcu, lcuState, currentPuuid, PLANNER } from './lcu.mjs';
 import { collect, refreshRank, completerPartie, myPuuidFromEnv } from './collecter.mjs';
-import { analyse } from './analyser.mjs';
+import { Worker } from 'node:worker_threads';
+import zlib from 'node:zlib';
+import { servirImage } from './images.mjs';
 import { codesDesCompos } from './niveaux.mjs';
 import { releverVersion } from './patchs.mjs';
 import { scoutLobby, scoutState, readLobby } from './scout.mjs';
@@ -84,7 +86,15 @@ const state = {
   lobbyVersion: readLobby()?.t || null,
 };
 const saveState = () => { try { fs.writeFileSync(STATE_FILE, JSON.stringify({ lastRun: state.lastRun, lastResult: state.lastResult, suivie: state.suivie })); } catch {} };
-const baseInfo = () => { try { const db = ouvrir(); return { parties: nombreParties(db), file: etatFile(db) }; } catch (e) { return { erreur: e.message }; } };
+// Décompte de la base (parties, file de jobs) : relu au plus toutes les 2 s, pas à chaque message envoyé aux fenêtres
+let baseCache = { t: 0, v: null };
+const baseInfo = () => {
+  if (baseCache.v && Date.now() - baseCache.t < 2000) return baseCache.v;
+  let v;
+  try { const db = ouvrir(); v = { parties: nombreParties(db), file: etatFile(db) }; } catch (e) { v = { erreur: e.message }; }
+  baseCache = { t: Date.now(), v };
+  return v;
+};
 const publicState = () => ({ ...state, settings: settingsView(), client: lcuState, scout: scoutState, base: baseInfo() });
 
 const clients = new Set(), overlayClients = new Set();
@@ -105,11 +115,21 @@ function scheduleAuto() {
   }
 }
 
+// L'analyse (plusieurs secondes de calcul) tourne dans un fil à part : le serveur reste réactif pendant ce temps
+function analyseEnFil() {
+  return new Promise((resolve, reject) => {
+    const w = new Worker(new URL('./analyse-worker.mjs', import.meta.url), { workerData: { quiet: true } });
+    let fini = false;
+    w.once('message', m => { fini = true; m.ok ? resolve() : reject(new Error(m.erreur)); });
+    w.once('error', e => { if (!fini) { fini = true; reject(e); } });
+    w.once('exit', code => { if (!fini) reject(new Error('analyse interrompue (code ' + code + ')')); });
+  });
+}
 async function runAnalyse() {
   state.phase = 'analyse'; broadcast();
   try { await loadAugments(); } catch {}
   try {
-    await analyse({ quiet: true });
+    await analyseEnFil();
     state.statsVersion = Date.now();
   } catch (e) {
     if (!state.error) state.error = 'Analyse : ' + e.message;
@@ -252,6 +272,8 @@ const formBody = req => new Promise(resolve => { let d = ''; req.on('data', c =>
 
 // ---- Serveur HTTP ----
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon' };
+let codesCache = { cle: null, corps: null };
+let statsCache = null;   // stats.json en mémoire (brut et compressé), relu quand le fichier change
 const json = (res, code, obj) => { res.writeHead(code, { 'Content-Type': TYPES['.json'], 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
 const body = req => new Promise(resolve => { let d = ''; req.on('data', c => { d += c; if (d.length > 1e5) req.destroy(); }); req.on('end', () => { try { resolve(JSON.parse(d || '{}')); } catch { resolve({}); } }); });
 
@@ -398,11 +420,16 @@ const server = http.createServer(async (req, res) => {
   if (p === '/api/lobby') return json(res, 200, { lobby: readLobby(), scout: scoutState });
   if (p === '/api/codes') {
     // Codes d'équipe (à coller dans le planificateur de TFT) de chaque compo, par niveau
-    let stats = null, d = null;
-    try { stats = JSON.parse(fs.readFileSync(STATS, 'utf8')); } catch {}
-    try { d = JSON.parse(fs.readFileSync(PLANNER, 'utf8')); } catch {}
-    const planner = stats && d && d.sets && d.sets[stats.set];
-    return json(res, 200, { disponible: !!planner, set: stats ? stats.set : null, client: lcuState.connecte, codes: planner ? codesDesCompos(stats.compos, planner) : {} });
+    const mt = f => { try { return fs.statSync(f).mtimeMs; } catch { return 0; } };
+    const cle = mt(STATS) + ':' + mt(PLANNER);
+    if (codesCache.cle !== cle) {
+      let stats = null, d = null;
+      try { stats = JSON.parse(fs.readFileSync(STATS, 'utf8')); } catch {}
+      try { d = JSON.parse(fs.readFileSync(PLANNER, 'utf8')); } catch {}
+      const planner = stats && d && d.sets && d.sets[stats.set];
+      codesCache = { cle, corps: { disponible: !!planner, set: stats ? stats.set : null, codes: planner ? codesDesCompos(stats.compos, planner) : {} } };
+    }
+    return json(res, 200, { ...codesCache.corps, client: lcuState.connecte });
   }
   if (p === '/api/augments') {
     let cat = { version: null, list: {} };
@@ -420,9 +447,16 @@ const server = http.createServer(async (req, res) => {
   }
   if (p === '/api/stats') {
     if (!fs.existsSync(STATS)) return json(res, 404, { erreur: 'pas encore de données' });
-    res.writeHead(200, { 'Content-Type': TYPES['.json'], 'Cache-Control': 'no-store' });
-    return fs.createReadStream(STATS).pipe(res);
+    const m = fs.statSync(STATS).mtimeMs;
+    if (!statsCache || statsCache.m !== m) { const brut = fs.readFileSync(STATS); statsCache = { m, brut, gz: zlib.gzipSync(brut, { level: 6 }) }; }
+    const gz = /gzip/.test(req.headers['accept-encoding'] || '');
+    const corps = gz ? statsCache.gz : statsCache.brut;
+    res.writeHead(200, { 'Content-Type': TYPES['.json'], 'Cache-Control': 'no-store', 'Content-Length': corps.length, Vary: 'Accept-Encoding', ...(gz ? { 'Content-Encoding': 'gzip' } : {}) });
+    return res.end(corps);
   }
+
+  // Images (champions, objets, traits, augments) : servies depuis le disque, téléchargées une fois
+  if (p.startsWith('/img/')) { await servirImage(res, p); return; }
 
   // Fichiers de l'interface
   const file = path.normalize(path.join(PUB, p === '/' ? 'index.html' : p));
