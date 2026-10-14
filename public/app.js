@@ -734,7 +734,7 @@ function maybeRecap() {
   if (seen !== r.id) showRecap(r);
 }
 
-// ---- Compo suivie (overlay et téléphone) ----
+// ---- Compo suivie (overlay) ----
 const OV = new URLSearchParams(location.search).has('overlay');
 // Overlay ouvert par Electron : fenêtre transparente (la forme vient du panneau), déplacée par son en-tête sans passer par le serveur
 const OVE = OV && new URLSearchParams(location.search).has('electron');
@@ -760,7 +760,7 @@ function suivie() {
 function suivreBtn(type, cle) {
   const s = STATE && STATE.suivie;
   const on = s && s.type === type && s.cle === cle;
-  return `<button type="button" class="ghost mini-btn suivre${on ? ' on' : ''}" data-suivre="${esc(cle)}" data-suivre-type="${type}" title="Affichée dans l'overlay et sur ton téléphone">${on ? '✓ Compo suivie' : 'Suivre en partie'}</button>`;
+  return `<button type="button" class="ghost mini-btn suivre${on ? ' on' : ''}" data-suivre="${esc(cle)}" data-suivre-type="${type}" title="Affichée dans l'overlay">${on ? '✓ Compo suivie' : 'Suivre en partie'}</button>`;
 }
 document.addEventListener('click', async e => {
   const b = e.target.closest('[data-suivre]'); if (!b) return;
@@ -1014,10 +1014,6 @@ function renderReglages() {
       <label class="row"><input type="checkbox" id="overlayForme" ${s.overlayForme !== false ? 'checked' : ''}> Overlay détouré (sans barre de titre, déplaçable par son en-tête)</label>
       <label class="row"><input type="checkbox" id="lobbyAuto" ${s.lobbyAuto ? 'checked' : ''}> Repérer le lobby au début de chaque partie</label>
       <div class="row"><button type="button" class="ghost" id="ovNow">Ouvrir l'overlay maintenant</button><small class="muted">Petite fenêtre toujours visible par-dessus le jeu. Mets TFT en mode « Fenêtré sans bordure » (Options → Vidéo) : en plein écran, Windows la cache.</small></div>
-      <h3 class="section" style="margin-top:6px">Téléphone</h3>
-      <label class="row"><input type="checkbox" id="mobile" ${s.mobile ? 'checked' : ''}> Consulter l'appli depuis mon téléphone (même Wi-Fi)</label>
-      <div class="field"><label for="mobilePin">Code PIN (4 à 8 chiffres)</label><input id="mobilePin" type="password" inputmode="numeric" maxlength="8" placeholder="${s.mobilePin ? 'Code enregistré : tape-en un nouveau pour le changer' : 'Choisis un code'}">
-        <small>${s.mobileActif && s.mobileUrl ? `Actif : sur ton téléphone, ouvre <b>${esc(s.mobileUrl)}</b> et entre ton code.` : s.mobile ? 'Redémarre l\'application pour activer l\'accès.' : 'Désactivé.'} Windows peut demander d'autoriser Node.js sur le réseau privé : accepte.</small></div>
       <h3 class="section" style="margin-top:6px">Démarrage</h3>
       <label class="row"><input type="checkbox" id="demarrageWindows" ${s.demarrageWindows ? 'checked' : ''}> Lancer TFT Stats en arrière-plan au démarrage de Windows</label>
       <div class="row"><button type="submit" class="primary">Enregistrer</button><span id="msg"></span></div>
@@ -1031,11 +1027,10 @@ function renderReglages() {
     const msg = $('#msg');
     const body = {
       riotId: $('#riotId').value, rangs: [...document.querySelectorAll('input[name=rang]:checked')].map(x => x.value).join(','),
-      parties: $('#parties').value, partiesAuto: $('#partiesAuto').value, autoMin: $('#autoMin').value, jours: $('#jours').value, budget: $('#budget').value, autoStart: $('#autoStart').checked, recapFenetre: $('#recapFenetre').checked, overlayAuto: $('#overlayAuto').checked, overlayForme: $('#overlayForme').checked, lobbyAuto: $('#lobbyAuto').checked, mobile: $('#mobile').checked, demarrageWindows: $('#demarrageWindows').checked,
+      parties: $('#parties').value, partiesAuto: $('#partiesAuto').value, autoMin: $('#autoMin').value, jours: $('#jours').value, budget: $('#budget').value, autoStart: $('#autoStart').checked, recapFenetre: $('#recapFenetre').checked, overlayAuto: $('#overlayAuto').checked, overlayForme: $('#overlayForme').checked, lobbyAuto: $('#lobbyAuto').checked, demarrageWindows: $('#demarrageWindows').checked,
     };
     if ($('#key').value.trim()) body.key = $('#key').value.trim();
-    if ($('#mobilePin').value.trim()) body.mobilePin = $('#mobilePin').value.trim();
-    try { const r = await api('/api/reglages', body); STATE = r; renderReglages(); const m2 = $('#msg'); m2.className = 'ok-msg'; m2.textContent = r.redemarrer ? 'Enregistré. Quitte puis relance l\'application pour activer l\'accès téléphone.' : 'Enregistré.'; renderStatus(); }
+    try { const r = await api('/api/reglages', body); STATE = r; renderReglages(); const m2 = $('#msg'); m2.className = 'ok-msg'; m2.textContent = 'Enregistré.'; renderStatus(); }
     catch (err) { msg.className = 'err-msg'; msg.textContent = err.message; }
   };
   const cocher = v => document.querySelectorAll('input[name=rang]').forEach(x => { x.checked = v; });

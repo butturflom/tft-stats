@@ -1,12 +1,10 @@
 // TFT Stats : application locale. Sert l'interface sur http://127.0.0.1:3777,
 // lance la collecte et l'analyse automatiquement, et affiche la progression en direct.
-// Options : accès depuis le téléphone (réseau local + code PIN), overlay en jeu, démarrage avec Windows.
+// Options : overlay en jeu, démarrage avec Windows. Le serveur n'écoute que sur ce PC (127.0.0.1).
 // Sous Electron (electron/main.mjs), ce serveur tourne dans un processus enfant et Electron ouvre les fenêtres.
 import http from 'node:http';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
-import crypto from 'node:crypto';
 import { exec, execFile, spawn } from 'node:child_process';
 import { ROOT, DATA, loadEnv, updateEnv, loadAugments, Riot } from './lib.mjs';
 import { startLcu, lcuState, currentPuuid, PLANNER } from './lcu.mjs';
@@ -18,14 +16,13 @@ import { codesDesCompos } from './niveaux.mjs';
 import { releverVersion } from './patchs.mjs';
 import { scoutLobby, scoutState, readLobby } from './scout.mjs';
 import { ouvrir, nombreParties, etatFile, rangsCibles, getMeta } from './db.mjs';
-import { memeSecret, LimiteEssais, cheminDansDossier, lireCorps, riotIdValide, ENTETES_SECURITE } from './securite.mjs';
+import { cheminDansDossier, lireCorps, riotIdValide, ENTETES_SECURITE } from './securite.mjs';
 
 const PORT = Number(process.env.TFT_PORT) || 3777;   // TFT_PORT : autre port, pour les tests
 const LOCAL = '127.0.0.1';
 const PUB = path.join(ROOT, 'public');
 const STATS = path.join(DATA, 'stats.json');
 const STATE_FILE = path.join(DATA, 'app-etat.json');
-const SESSIONS = path.join(DATA, 'sessions.json');
 const LOG = path.join(DATA, 'app.log');
 const FOND = process.argv.includes('--fond');
 
@@ -37,20 +34,10 @@ const log = (...a) => {
 
 const readEnv = () => { try { return loadEnv(); } catch { return {}; } };
 const num = (v, d) => (v === undefined || v === '' || isNaN(Number(v)) ? d : Number(v));
-const ENV0 = readEnv();
-const MOBILE = ENV0.MOBILE === '1' && /^\d{4,8}$/.test(ENV0.MOBILE_PIN || '');
-
-// ---- Réseau local (accès téléphone) ----
-const isPrivate = ip => /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|169\.254\.)/.test(ip);
-const lanIp = () => {
-  for (const list of Object.values(os.networkInterfaces())) for (const a of list || []) if (a.family === 'IPv4' && !a.internal && isPrivate(a.address)) return a.address;
-  return null;
-};
 const startupLnk = () => path.join(process.env.APPDATA || '', 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup', 'TFT Stats.lnk');
 
 function settingsView() {
   const env = readEnv();
-  const ip = lanIp();
   return {
     keyPresent: /^RGAPI-[0-9a-f-]{36}$/i.test(env.RIOT_API_KEY || ''),
     riotId: env.RIOT_ID || '',
@@ -66,10 +53,6 @@ function settingsView() {
     overlayCompact: env.OVERLAY_COMPACT === '1',
     overlayForme: env.OVERLAY_FORME !== '0',
     lobbyAuto: env.LOBBY_AUTO !== '0',
-    mobile: env.MOBILE === '1',
-    mobileActif: MOBILE,
-    mobilePin: !!env.MOBILE_PIN,
-    mobileUrl: ip ? `http://${ip}:${PORT}/` : null,
     demarrageWindows: process.platform === 'win32' && fs.existsSync(startupLnk()),
     jours: num(env.JOURS, 14),
     patch: env.PATCH !== undefined ? String(env.PATCH).trim() : env.PATCH_SEUL === '1' ? 'courant' : '',
@@ -261,16 +244,6 @@ function setStartup(on) {
   });
 }
 
-// ---- Sessions du téléphone (code PIN) ----
-const sessions = new Set((() => { try { return JSON.parse(fs.readFileSync(SESSIONS, 'utf8')); } catch { return []; } })());
-const saveSessions = () => { try { fs.writeFileSync(SESSIONS, JSON.stringify([...sessions].slice(-20))); } catch {} };
-const essais = new LimiteEssais(5, 10 * 60000);   // 5 codes faux par adresse, puis 10 minutes de pause
-const cookieOf = req => { const m = String(req.headers.cookie || '').match(/(?:^|;\s*)tft_s=([a-f0-9]{48})/); return m ? m[1] : null; };
-const loginPage = (msg = '') => `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>TFT Stats</title>
-<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#10121a;color:#e8eaf0;font-family:system-ui,"Segoe UI",sans-serif}form{display:grid;gap:12px;width:min(320px,90vw);background:#191c26;border:1px solid #2c3140;border-radius:14px;padding:22px}h1{margin:0;font-size:1.4rem}input{font-size:1.4rem;letter-spacing:.3em;text-align:center;padding:10px;border-radius:10px;border:1px solid #2c3140;background:#20242f;color:inherit}button{padding:10px;border:none;border-radius:10px;background:#e7b33e;color:#17130a;font-weight:700;font-size:1rem}p{margin:0;color:#e2625c;font-size:.9rem}</style></head>
-<body><form method="post" action="/connexion"><h1>TFT Stats</h1><label for="pin">Code PIN</label><input id="pin" name="pin" type="password" inputmode="numeric" autocomplete="off" autofocus required>${msg ? `<p>${msg}</p>` : ''}<button>Entrer</button></form></body></html>`;
-const formBody = async req => new URLSearchParams((await lireCorps(req, 1000)).texte);
-
 // ---- Serveur HTTP ----
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon' };
 let codesCache = { cle: null, corps: null };
@@ -284,36 +257,14 @@ async function traiter(req, res) {
   const ra = String(req.socket.remoteAddress || '').replace(/^::ffff:/, '');
   const local = ra === '127.0.0.1' || ra === '::1';
   const host = (req.headers.host || '').toLowerCase();
-  // Ce PC : 127.0.0.1 ou localhost. Téléphone : adresse du réseau local, seulement si l'option est active.
-  const okHost = host === `127.0.0.1:${PORT}` || host === `localhost:${PORT}` || (MOBILE && /^\d+\.\d+\.\d+\.\d+:\d+$/.test(host) && host.endsWith(`:${PORT}`) && isPrivate(host.split(':')[0]));
-  if (!okHost || (!local && !(MOBILE && isPrivate(ra)))) { res.writeHead(403); return res.end(); }
+  // Seulement ce PC : adresse 127.0.0.1 et nom d'hôte 127.0.0.1 ou localhost (le nom d'hôte écarte le DNS rebinding)
+  const okHost = host === `127.0.0.1:${PORT}` || host === `localhost:${PORT}`;
+  if (!okHost || !local) { res.writeHead(403); return res.end(); }
   const url = new URL(req.url, `http://${host}`);
   const p = url.pathname;
 
-  if (!local) {
-    if (p === '/connexion' && req.method === 'POST') {
-      if (essais.bloque(ra)) { res.writeHead(429, { 'Content-Type': TYPES['.html'] }); return res.end(loginPage('Trop d\'essais : réessaie dans 10 minutes.')); }
-      const pin = (await formBody(req)).get('pin') || '';
-      const want = readEnv().MOBILE_PIN || '';
-      if (!memeSecret(pin, want)) { essais.echec(ra); res.writeHead(401, { 'Content-Type': TYPES['.html'] }); return res.end(loginPage('Code incorrect.')); }
-      essais.reussite(ra);
-      const tok = crypto.randomBytes(24).toString('hex');
-      sessions.add(tok); saveSessions();
-      log(`Téléphone connecté (${ra})`);
-      res.writeHead(303, { Location: '/?overlay=1', 'Set-Cookie': `tft_s=${tok}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${60 * 60 * 24 * 60}` });
-      return res.end();
-    }
-    if (!sessions.has(cookieOf(req))) {
-      if (p.startsWith('/api/')) return json(res, 401, { erreur: 'Connexion requise' });
-      res.writeHead(200, { 'Content-Type': TYPES['.html'], 'Cache-Control': 'no-store' });
-      return res.end(loginPage());
-    }
-  }
-
   if (req.method === 'POST') {
     if (req.headers['x-tft'] !== '1') { res.writeHead(403); return res.end(); }
-    // Depuis le téléphone, pas de réglages ni d'arrêt de l'application
-    if (!local && ['/api/reglages', '/api/quitter', '/api/overlay'].includes(p)) return json(res, 403, { erreur: 'Disponible seulement sur le PC' });
     const b = await body(req);
     if (p === '/api/maj') { runCycle(Number(b.parties) || settingsView().partiesAuto, 'manuelle'); return json(res, 200, publicState()); }
     if (p === '/api/mes-augments') {
@@ -395,23 +346,18 @@ async function traiter(req, res) {
       for (const [k, env, min, max] of [['parties', 'PARTIES_PAR_COLLECTE', 50, 5000], ['partiesAuto', 'PARTIES_AUTO', 20, 2000], ['autoMin', 'AUTO_MIN', 0, 600], ['jours', 'JOURS', 1, 30], ['budget', 'REQUETES_HEURE', 0, 100000]]) {
         if (b[k] !== undefined) { const v = Math.round(Number(b[k])); if (isNaN(v) || v < min || v > max) return json(res, 400, { erreur: `Valeur hors limites pour ${k}` }); ch[env] = v; }
       }
-      for (const [k, env] of [['autoStart', 'AUTO_START'], ['recapFenetre', 'RECAP_FENETRE'], ['overlayAuto', 'OVERLAY_AUTO'], ['overlayForme', 'OVERLAY_FORME'], ['lobbyAuto', 'LOBBY_AUTO'], ['mobile', 'MOBILE']]) {
+      for (const [k, env] of [['autoStart', 'AUTO_START'], ['recapFenetre', 'RECAP_FENETRE'], ['overlayAuto', 'OVERLAY_AUTO'], ['overlayForme', 'OVERLAY_FORME'], ['lobbyAuto', 'LOBBY_AUTO']]) {
         if (typeof b[k] === 'boolean') ch[env] = b[k] ? '1' : '0';
       }
       if (ch.OVERLAY_FORME === '0' && ovHelper) ovCmd('region');
-      if (typeof b.mobilePin === 'string' && b.mobilePin.trim()) {
-        if (!/^\d{4,8}$/.test(b.mobilePin.trim())) return json(res, 400, { erreur: 'Le code PIN doit faire 4 à 8 chiffres' });
-        ch.MOBILE_PIN = b.mobilePin.trim(); sessions.clear(); saveSessions();
-      }
-      if (ch.MOBILE === '1' && !ch.MOBILE_PIN && !readEnv().MOBILE_PIN) return json(res, 400, { erreur: 'Choisis un code PIN pour activer l\'accès téléphone' });
       if (typeof b.demarrageWindows === 'boolean' && b.demarrageWindows !== settingsView().demarrageWindows) await setStartup(b.demarrageWindows);
       updateEnv(ch);
       // Electron refait l'overlay ouvert avec ou sans barre de titre
       if (ELECTRON && ch.OVERLAY_FORME) versElectron({ type: 'forme', forme: ch.OVERLAY_FORME !== '0' });
-      log('Réglages enregistrés :', Object.keys(ch).filter(k => k !== 'RIOT_API_KEY' && k !== 'MOBILE_PIN').join(', ') + (ch.RIOT_API_KEY ? ' + nouvelle clé' : '') + (ch.MOBILE_PIN ? ' + nouveau PIN' : ''));
+      log('Réglages enregistrés :', Object.keys(ch).filter(k => k !== 'RIOT_API_KEY').join(', ') + (ch.RIOT_API_KEY ? ' + nouvelle clé' : ''));
       if (!state.running) scheduleAuto();
       broadcast();
-      return json(res, 200, { ...publicState(), redemarrer: 'MOBILE' in ch && (ch.MOBILE === '1') !== MOBILE });
+      return json(res, 200, publicState());
     }
     if (p === '/api/quitter') { json(res, 200, { ok: true }); log('Fermeture demandée'); stopFlag = true; setTimeout(() => process.exit(0), 300); return; }
     res.writeHead(404); return res.end();
@@ -487,8 +433,8 @@ server.on('error', e => {
   }
 });
 
-server.listen(PORT, MOBILE ? '0.0.0.0' : LOCAL, async () => {
-  log(`TFT Stats prêt sur http://${LOCAL}:${PORT}/` + (MOBILE ? ` (téléphone : ${settingsView().mobileUrl || 'réseau local introuvable'})` : '') + (FOND ? ' (en arrière-plan)' : '') + (ELECTRON ? ' (fenêtres Electron)' : ''));
+server.listen(PORT, LOCAL, async () => {
+  log(`TFT Stats prêt sur http://${LOCAL}:${PORT}/` + (FOND ? ' (en arrière-plan)' : '') + (ELECTRON ? ' (fenêtres Electron)' : ''));
   if (ELECTRON) versElectron({ type: 'pret', url: `http://${LOCAL}:${PORT}/` });
   if (!FOND) openWindow();
   // Journal des patchs : la date de première vue d'un patch est celle où l'appli le remarque, donc on regarde chaque heure

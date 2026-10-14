@@ -62,7 +62,7 @@ Onglets
                    après la fin, le temps que le client LoL et Riot publient la partie.
 - Mes parties    : tes résultats par compo (renseigne ton Riot ID dans Réglages).
 - Réglages       : clé, Riot ID, rangs (collecte et analyse), volumes, intervalle,
-                   budget de requêtes, téléphone (même Wi-Fi, code PIN).
+                   budget de requêtes, démarrage avec Windows.
 
 Collecte du ladder
 - Par défaut, tout le ladder (de Fer IV à Challenger). Dans Réglages, coche seulement

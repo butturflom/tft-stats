@@ -57,9 +57,9 @@ No third-party website is used for data. The only request to a third party is th
 ## Security
 
 - The server listens on `127.0.0.1` only, checks the `Host` header (against DNS rebinding) and requires an `X-TFT: 1` header on every `POST`, so a web page you visit cannot change your settings.
-- The optional phone access (`MOBILE=1`) opens the local network behind a PIN: constant-time comparison, 5 wrong codes per address then a 10-minute pause, no access to settings or shutdown from the phone. It uses plain HTTP: use it on a home network only, and prefer a 6 to 8 digit PIN.
+- There is no remote access: the server answers this PC only, so nothing on your network can reach it.
 - Every response carries a `Content-Security-Policy` (`securite.mjs`): scripts only from the app itself (no inline script, no `eval`), so markup injected into a page does not run; connections only to the app; no framing. The only external resources allowed are the Google Fonts stylesheet and font files.
-- Security-sensitive helpers (PIN check, attempt limiter, served-file path, request body reading, `.env` values) live in `securite.mjs` and are covered by `tests/securite.test.mjs`.
+- Security-sensitive helpers (served-file path, request body reading, Riot ID and `.env` values, the policy above) live in `securite.mjs` and are covered by `tests/securite.test.mjs`.
 
 ## Data and privacy
 

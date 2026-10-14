@@ -1,4 +1,4 @@
-// Sécurité du serveur : fonctions de securite.mjs (code PIN, essais, chemins, corps de requête, valeurs de .env),
+// Sécurité du serveur : fonctions de securite.mjs (chemins, corps de requête, Riot ID, valeurs de .env, politique),
 // puis serveur réel (app.mjs avec un faux .env, des données temporaires et un port libre).
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -9,48 +9,10 @@ import path from 'node:path';
 import { EventEmitter } from 'node:events';
 import { fork } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { memeSecret, LimiteEssais, cheminDansDossier, lireCorps, riotIdValide, valeurEnv, CSP, ENTETES_SECURITE } from '../securite.mjs';
+import { cheminDansDossier, lireCorps, riotIdValide, valeurEnv, CSP, ENTETES_SECURITE } from '../securite.mjs';
 import { updateEnv, loadEnv } from '../lib.mjs';
 
 const racine = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-
-test('code PIN : bon code accepté, mauvais refusé, sans erreur même si la longueur en octets diffère', () => {
-  assert.equal(memeSecret('1234', '1234'), true);
-  assert.equal(memeSecret('1235', '1234'), false);
-  assert.equal(memeSecret('12345', '1234'), false);
-  // « é123 » a 4 caractères comme « 1234 » mais 5 octets : timingSafeEqual direct lèverait une RangeError
-  assert.equal(memeSecret('é123', '1234'), false);
-  assert.equal(memeSecret('', ''), false, 'pas de PIN configuré : jamais valide');
-  assert.equal(memeSecret('1234', ''), false);
-  assert.equal(memeSecret(undefined, '1234'), false);
-  assert.equal(memeSecret(['1234'], '1234'), false);
-});
-
-test('essais de connexion : blocage après 5 échecs, levé après la fenêtre, remis à zéro par une réussite', () => {
-  let t = 1000;
-  const l = new LimiteEssais(5, 600000, () => t);
-  for (let i = 0; i < 4; i++) l.echec('a');
-  assert.equal(l.bloque('a'), false);
-  l.echec('a');
-  assert.equal(l.bloque('a'), true);
-  assert.equal(l.bloque('b'), false, 'une autre adresse n\'est pas bloquée');
-  t += 599999;
-  assert.equal(l.bloque('a'), true);
-  t += 1;
-  assert.equal(l.bloque('a'), false, 'fenêtre écoulée');
-  l.echec('c'); l.echec('c');
-  l.reussite('c');
-  assert.equal(l.table.has('c'), false);
-});
-
-test('essais de connexion : les adresses anciennes sont oubliées', () => {
-  let t = 0;
-  const l = new LimiteEssais(5, 1000, () => t);
-  for (let i = 0; i < 50; i++) l.echec('ip' + i);
-  t = 5000;
-  l.echec('nouvelle');
-  assert.deepEqual([...l.table.keys()], ['nouvelle']);
-});
 
 test('chemin des fichiers servis : reste dans le dossier, y compris face à un dossier voisin au nom proche', () => {
   const pub = path.join(racine, 'public');
@@ -92,7 +54,7 @@ test('Riot ID : format Pseudo#TAG, sans saut de ligne ni caractère de contrôle
   assert.equal(riotIdValide('ab#EUW'), false);
   assert.equal(riotIdValide('Pseudo#'), false);
   assert.equal(riotIdValide('Pseudo#A#B'), false);
-  assert.equal(riotIdValide('a\nMOBILE_PIN=1#xx'), false);
+  assert.equal(riotIdValide('a\nAUTO_MIN=1#xx'), false);
   assert.equal(riotIdValide('abc\r#xx'), false);
   assert.equal(riotIdValide('abc#x\u2028x'), false);
   assert.equal(riotIdValide(42), false);
@@ -106,12 +68,12 @@ test('.env : une valeur ne peut pas ajouter un autre réglage', () => {
   try {
     process.env.TFT_ENV = path.join(dir, '.env');
     fs.writeFileSync(process.env.TFT_ENV, '# commentaire\r\nRIOT_ID=ancien#EUW\r\n');
-    updateEnv({ RIOT_ID: 'x\nMOBILE=1\nMOBILE_PIN=1234', AUTRE: 'a\nB=2' });
+    updateEnv({ RIOT_ID: 'x\nAUTO_START=1\nAUTO_MIN=1', AUTRE: 'a\nB=2' });
     const env = loadEnv();
-    assert.equal(env.MOBILE, undefined);
-    assert.equal(env.MOBILE_PIN, undefined);
+    assert.equal(env.AUTO_START, undefined);
+    assert.equal(env.AUTO_MIN, undefined);
     assert.equal(env.B, undefined);
-    assert.equal(env.RIOT_ID, 'x MOBILE=1 MOBILE_PIN=1234');
+    assert.equal(env.RIOT_ID, 'x AUTO_START=1 AUTO_MIN=1');
     assert.match(fs.readFileSync(process.env.TFT_ENV, 'utf8'), /^# commentaire/);
   } finally {
     if (avant === undefined) delete process.env.TFT_ENV; else process.env.TFT_ENV = avant;
@@ -182,7 +144,7 @@ test('serveur : fichiers hors de public/ refusés, corps invalides sans effet, s
 test('serveur : un Riot ID avec saut de ligne est refusé et le .env reste intact', async () => {
   const avant = fs.readFileSync(ENV, 'utf8');
   const port = portServeur;
-  for (const riotId of ['a\nMOBILE=1\nMOBILE_PIN=1234#xx', 'abc\r\nX=1#yy', 'ab#EUW', 'Pseudo#A#B']) {
+  for (const riotId of ['a\nAUTO_START=1\nAUTO_MIN=1#xx', 'abc\r\nX=1#yy', 'ab#EUW', 'Pseudo#A#B']) {
     const r = await post(port, '/api/reglages', { riotId });
     assert.equal(r.status, 400, JSON.stringify(riotId));
   }
@@ -190,8 +152,28 @@ test('serveur : un Riot ID avec saut de ligne est refusé et le .env reste intac
   const ok = await post(port, '/api/reglages', { riotId: 'Pseudo#EUW' });
   assert.equal(ok.status, 200);
   assert.equal(envDe(ENV).RIOT_ID, 'Pseudo#EUW');
-  assert.equal(envDe(ENV).MOBILE, undefined);
+  assert.equal(envDe(ENV).AUTO_START, '0', 'le réglage de départ n\'a pas été remplacé');
 });
+test('serveur : réservé à ce PC (écoute sur 127.0.0.1, nom d\'hôte contrôlé, plus de connexion par PIN)', async () => {
+  const port = portServeur || await demarrer();
+  const h = `Connection: close\r\n\r\n`;
+  // Nom d'hôte inattendu (DNS rebinding, ou adresse du réseau local) : refusé
+  for (const hote of ['192.168.1.20:' + port, 'exemple.test:' + port, '127.0.0.1', 'localhost:1']) {
+    const rep = await brute(port, `GET /api/etat HTTP/1.1\r\nHost: ${hote}\r\n${h}`);
+    assert.match(rep, /^HTTP\/1\.1 403/, hote + ' : ' + rep.split('\r\n')[0]);
+    assert.doesNotMatch(rep, /"settings"/);
+  }
+  assert.match(await brute(port, `GET /api/etat HTTP/1.1\r\nHost: localhost:${port}\r\n${h}`), /^HTTP\/1\.1 200/);
+  // La route de connexion par PIN n'existe plus
+  assert.equal((await post(port, '/connexion', { pin: '1234' })).status, 404);
+  // Aucune écoute sur les autres adresses de ce PC (réseau local)
+  const lan = Object.values(os.networkInterfaces()).flat().filter(a => a && a.family === 'IPv4' && !a.internal).map(a => a.address);
+  for (const adresse of lan) {
+    const joignable = await new Promise(ok => { const s = net.connect({ host: adresse, port, timeout: 1500 }, () => { s.destroy(); ok(true); }); s.on('error', () => ok(false)); s.on('timeout', () => { s.destroy(); ok(false); }); });
+    assert.equal(joignable, false, 'le serveur répond sur ' + adresse);
+  }
+});
+
 // ---- Content-Security-Policy ----
 const lirePublic = f => fs.readFileSync(path.join(racine, 'public', f), 'utf8');
 

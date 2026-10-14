@@ -1,36 +1,6 @@
 // Parties sensibles du serveur HTTP, sorties de app.mjs pour pouvoir être testées :
-// code PIN, limite d'essais, chemin des fichiers servis, lecture des corps de requête, valeurs écrites dans .env.
-import crypto from 'node:crypto';
+// chemin des fichiers servis, lecture des corps de requête, Riot ID et valeurs écrites dans .env, en-têtes de sécurité.
 import path from 'node:path';
-
-// Compare deux textes en temps constant. Passe par un condensat : la longueur en octets ne compte plus
-// (timingSafeEqual lève une erreur si les longueurs diffèrent, par exemple avec un « é » dans le code saisi).
-export function memeSecret(saisi, attendu) {
-  if (typeof saisi !== 'string' || typeof attendu !== 'string' || !attendu) return false;
-  const h = s => crypto.createHash('sha256').update(s, 'utf8').digest();
-  return crypto.timingSafeEqual(h(saisi), h(attendu));
-}
-
-// Essais de connexion par adresse : après `max` échecs, l'adresse est bloquée `fenetreMs` après le dernier échec.
-// Les adresses anciennes sont oubliées, pour que la table ne grossisse pas indéfiniment.
-export class LimiteEssais {
-  constructor(max = 5, fenetreMs = 10 * 60000, maintenant = Date.now) {
-    this.max = max; this.fenetreMs = fenetreMs; this.maintenant = maintenant; this.table = new Map();
-  }
-  bloque(cle) {
-    const t = this.table.get(cle);
-    if (!t) return false;
-    if (this.maintenant() - t.t >= this.fenetreMs) { this.table.delete(cle); return false; }
-    return t.n >= this.max;
-  }
-  echec(cle) {
-    const now = this.maintenant();
-    for (const [k, t] of this.table) if (now - t.t >= this.fenetreMs) this.table.delete(k);
-    const t = this.table.get(cle);
-    this.table.set(cle, { n: (t ? t.n : 0) + 1, t: now });
-  }
-  reussite(cle) { this.table.delete(cle); }
-}
 
 // Fichier de `dossier` demandé par un chemin d'URL, ou null s'il sort du dossier.
 // Le séparateur final évite qu'un dossier voisin (« public-secret ») passe pour un sous-dossier de « public ».
