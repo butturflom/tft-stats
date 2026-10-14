@@ -116,6 +116,7 @@ Fichiers
 - collecter.bat / analyser.bat  l'ancienne méthode, toujours utilisable
 - .env                     ta clé et tes réglages (ne jamais partager)
 - data/tft.db              base SQLite : parties, rangs relevés, file de collecte
+- data/sauvegardes/        une copie vérifiée de tft.db par jour (les 7 dernières sont gardées)
 - data/parties-avant-sqlite.jsonl  ancien fichier des parties, importé dans tft.db au
                            premier lancement de la version 0.2 (gardé en sauvegarde)
 - npm run export           exporte les parties dans data/export-parties.jsonl
@@ -132,5 +133,10 @@ En cas de problème
   Il lance l'appli sans Electron : si elle marche ainsi, le souci vient d'Electron ;
   les lignes « Electron : » de data/app.log l'expliquent. Pour revenir à Edge, supprime
   le dossier node_modules ; installer-electron.bat le réinstalle.
+- Base abîmée ou parties perdues : quitte l'appli (Réglages > Quitter l'application),
+  copie la sauvegarde voulue de data/sauvegardes/ (tft-AAAA-MM-JJ.db) à la place de
+  data/tft.db, supprime data/tft.db-wal et data/tft.db-shm s'ils existent, puis relance.
+  Les parties collectées depuis cette sauvegarde sont perdues ; garde l'ancien tft.db
+  à côté (renommé) tant que tu n'es pas sûr.
 - Augments vides ou sans noms : vérifie la connexion internet, supprime
   data/augments-fr.json puis relance l'appli : le fichier est reconstruit depuis Data Dragon.

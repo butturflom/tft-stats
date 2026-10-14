@@ -15,7 +15,7 @@
     "collecte": "node collecter.mjs",
     "analyse": "node analyser.mjs",
     "lint": "node scripts/verifier-syntaxe.mjs",
-    "test": "node --test tests/depot.test.mjs tests/compact.test.mjs tests/valider.test.mjs tests/analyse.test.mjs tests/db.test.mjs tests/collecte.test.mjs tests/electron.test.mjs tests/lcu.test.mjs tests/niveaux.test.mjs tests/patchs.test.mjs tests/images.test.mjs tests/securite.test.mjs tests/routes.test.mjs tests/robustesse.test.mjs tests/analyse-outils.test.mjs tests/raccourci.test.mjs",
+    "test": "node --test tests/depot.test.mjs tests/compact.test.mjs tests/valider.test.mjs tests/analyse.test.mjs tests/db.test.mjs tests/collecte.test.mjs tests/electron.test.mjs tests/lcu.test.mjs tests/niveaux.test.mjs tests/patchs.test.mjs tests/images.test.mjs tests/securite.test.mjs tests/routes.test.mjs tests/robustesse.test.mjs tests/analyse-outils.test.mjs tests/raccourci.test.mjs tests/sauvegarde.test.mjs",
     "export": "node scripts/exporter.mjs"
   },
   "devDependencies": {

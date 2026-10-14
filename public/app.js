@@ -1021,6 +1021,7 @@ function renderReglages() {
     <div class="section"><h3>Application</h3>
       <p class="lead">L'application tourne en arrière-plan tant qu'elle est ouverte. Fermer la fenêtre ne l'arrête pas : utilise « Quitter » pour la fermer complètement.</p>
       <div class="row"><button type="button" class="ghost" id="reanalyse">Relancer l'analyse</button><button type="button" class="ghost" id="quit">Quitter l'application</button></div>
+      <p class="muted">${STATE.sauvegarde ? `Sauvegarde de tes parties : ${esc(STATE.sauvegarde.fichier)}, ${esc(ago(new Date(STATE.sauvegarde.t).toISOString()))} (${int(STATE.sauvegarde.nombre)} gardée${STATE.sauvegarde.nombre > 1 ? 's' : ''} dans data/sauvegardes).` : 'Sauvegarde de tes parties : la première est faite quelques minutes après le lancement, puis une par jour (7 gardées, dans data/sauvegardes).'}</p>
     </div>`;
   $('#form').onsubmit = async e => {
     e.preventDefault();

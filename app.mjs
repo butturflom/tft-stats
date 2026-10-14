@@ -15,7 +15,7 @@ import { servirImage } from './images.mjs';
 import { codesDesCompos } from './niveaux.mjs';
 import { releverVersion } from './patchs.mjs';
 import { scoutLobby, scoutState, readLobby } from './scout.mjs';
-import { ouvrir, nombreParties, etatFile, rangsCibles, getMeta } from './db.mjs';
+import { ouvrir, nombreParties, etatFile, rangsCibles, getMeta, DOSSIER_SAUVEGARDES, listeSauvegardes, nomSauvegarde } from './db.mjs';
 import { cheminDansDossier, lireCorps, riotIdValide, ENTETES_SECURITE } from './securite.mjs';
 
 const PORT = Number(process.env.TFT_PORT) || 3777;   // TFT_PORT : autre port, pour les tests
@@ -68,6 +68,7 @@ const state = {
   statsVersion: fs.existsSync(STATS) ? fs.statSync(STATS).mtimeMs : null,
   suivie: saved.suivie || null,
   lobbyVersion: readLobby()?.t || null,
+  sauvegarde: null,
 };
 const saveState = () => { try { fs.writeFileSync(STATE_FILE, JSON.stringify({ lastRun: state.lastRun, lastResult: state.lastResult, suivie: state.suivie })); } catch {} };
 // Décompte de la base (parties, file de jobs) : relu au plus toutes les 2 s, pas à chaque message envoyé aux fenêtres
@@ -149,6 +150,29 @@ async function runCycle(target, reason) {
   state.running = false; state.phase = 'idle'; state.progress = null;
   state.lastRun = new Date().toISOString();
   saveState(); scheduleAuto(); broadcast();
+}
+
+// ---- Sauvegarde quotidienne de la base : data/sauvegardes/tft-AAAA-MM-JJ.db, 7 jours gardés ----
+// Faite dans un fil à part (≈ 3 s pour 75 Mo) : la première quelques minutes après le lancement, puis contrôlée chaque heure
+// pour le changement de jour. TFT_SAUVEGARDE_DELAI : autre délai avant la première (tests).
+const derniereSauvegarde = () => {
+  const dossier = DOSSIER_SAUVEGARDES(), liste = listeSauvegardes(dossier), nom = liste[liste.length - 1];
+  if (!nom) return null;
+  try { return { fichier: nom, t: fs.statSync(path.join(dossier, nom)).mtimeMs, nombre: liste.length }; } catch { return null; }
+};
+state.sauvegarde = derniereSauvegarde();
+let sauvegardeEnCours = false;
+function sauvegardeDuJour() {
+  if (sauvegardeEnCours || fs.existsSync(path.join(DOSSIER_SAUVEGARDES(), nomSauvegarde()))) return;
+  sauvegardeEnCours = true;
+  const w = new Worker(new URL('./sauvegarde-worker.mjs', import.meta.url));
+  w.once('message', m => {
+    if (!m.ok) log('Sauvegarde de la base impossible : ' + m.erreur);
+    else if (m.cree) log(`Sauvegarde de la base : sauvegardes/${path.basename(m.fichier)} (${m.parties} parties)` + (m.supprimees.length ? ` ; plus anciennes retirées : ${m.supprimees.join(', ')}` : ''));
+    state.sauvegarde = derniereSauvegarde(); broadcast(false);
+  });
+  w.once('error', e => log('Sauvegarde de la base impossible : ' + e.message));
+  w.once('exit', () => { sauvegardeEnCours = false; });
 }
 
 // ---- Repérage du lobby ----
@@ -444,6 +468,8 @@ server.listen(PORT, LOCAL, async () => {
   // Journal des patchs : la date de première vue d'un patch est celle où l'appli le remarque, donc on regarde chaque heure
   const veille = () => releverVersion().then(v => { if (v) log(`Nouveau patch vu : ${v} (noté dans data/patchs.json)`); });
   veille(); setInterval(veille, 3600e3);
+  setTimeout(sauvegardeDuJour, Number(process.env.TFT_SAUVEGARDE_DELAI) || 120000);
+  setInterval(sauvegardeDuJour, 3600e3);
   startLcu({
     onNew: n => { log(`Client LoL : ${n} partie(s) avec augments récupérée(s)`); quickAnalyse(); },
     onGame: rec => {

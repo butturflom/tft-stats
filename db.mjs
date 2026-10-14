@@ -271,6 +271,39 @@ export function attenteBudget(db, parHeure, now = Date.now()) {
   return 60000;
 }
 
+// ---- Sauvegardes : une copie par jour de tft.db, vérifiée, les `garder` plus récentes conservées ----
+// VACUUM INTO lit un état cohérent de la base même pendant une collecte (mode WAL) et écrit une copie compacte.
+export const DOSSIER_SAUVEGARDES = (dir = DATA) => path.join(dir, 'sauvegardes');
+const NOM_SAUVEGARDE = /^tft-\d{4}-\d{2}-\d{2}\.db$/;
+const deux = n => String(n).padStart(2, '0');
+// Nom du jour, en heure locale : tft-2026-10-14.db
+export const nomSauvegarde = (d = new Date()) => `tft-${d.getFullYear()}-${deux(d.getMonth() + 1)}-${deux(d.getDate())}.db`;
+export const listeSauvegardes = dossier => { try { return fs.readdirSync(dossier).filter(n => NOM_SAUVEGARDE.test(n)).sort(); } catch { return []; } };
+
+export function sauvegarder({ source = DB_FILE(), dossier = DOSSIER_SAUVEGARDES(path.dirname(source)), garder = 7, maintenant = new Date() } = {}) {
+  if (!fs.existsSync(source)) return { cree: false, raison: 'aucune base à sauvegarder' };
+  fs.mkdirSync(dossier, { recursive: true });
+  const fichier = path.join(dossier, nomSauvegarde(maintenant));
+  let parties = null, cree = false;
+  if (!fs.existsSync(fichier)) {
+    const tmp = fichier + '.tmp';
+    try { fs.unlinkSync(tmp); } catch {}
+    const src = new DatabaseSync(source, { readOnly: true });
+    try { src.exec(`VACUUM INTO '${tmp.replace(/'/g, "''")}'`); } finally { src.close(); }
+    // Copie gardée seulement si elle est saine
+    const copie = new DatabaseSync(tmp, { readOnly: true });
+    let verif;
+    try { verif = Object.values(copie.prepare('PRAGMA quick_check').get())[0]; parties = copie.prepare('SELECT COUNT(*) n FROM parties').get().n; } finally { copie.close(); }
+    if (verif !== 'ok') { try { fs.unlinkSync(tmp); } catch {} throw new Error('copie de la base invalide (' + verif + ')'); }
+    fs.renameSync(tmp, fichier);
+    cree = true;
+  }
+  const supprimees = [];
+  const liste = listeSauvegardes(dossier);
+  for (const n of liste.slice(0, Math.max(0, liste.length - garder))) { try { fs.unlinkSync(path.join(dossier, n)); supprimees.push(n); } catch {} }
+  return { cree, fichier, parties, supprimees, gardees: listeSauvegardes(dossier) };
+}
+
 // ---- Migration depuis parties.jsonl (une seule fois) et export ----
 export function importerJsonl(db, file) {
   const bilan = { lues: 0, ajoutees: 0, doublons: 0, illisibles: 0, date: new Date().toISOString() };
