@@ -5,6 +5,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { DATA, loadEnv, loadNames, prettyId } from './lib.mjs';
 import { validerParties, controleMoyenne } from './valider.mjs';
+import { compoParNiveau } from './niveaux.mjs';
 import { ouvrir, lireParties, rangsDesParties, getMeta, rangsCibles } from './db.mjs';
 
 const MIN_N = 30;          // taille minimale pour lister une compo
@@ -377,6 +378,8 @@ export async function analyse({ tous = false, quiet = false } = {}) {
       u.objets.forEach(it => usedItems.add(it));
     }
     c.plateau = [...units].sort((a, b) => b.porteur - a.porteur).map(u => ({ id: u.id, etoiles: u.etoiles, objets: u.objets }));
+    // Composition à chaque niveau du joueur (4 à 10), pour monter la compo pas à pas
+    c.niveaux = compoParNiveau(list, { carryId: c.carryId, plateau: c.plateau });
   }
   // Index des champions et des objets (pour composer un plateau depuis n'importe quelle liste)
   const unitsIndex = {};
@@ -433,7 +436,7 @@ export async function analyse({ tous = false, quiet = false } = {}) {
   const dates = recs.map(r => r.t);
   const out = {
     genere: new Date().toISOString(),
-    format: 9, patch, set,
+    format: 10, patch, set,
     parties: recs.length, plateaux: total,
     controleMoyenne: r2(boards.reduce((s, b) => s + b.p, 0) / total),
     periode: { debut: new Date(Math.min(...dates)).toISOString(), fin: new Date(Math.max(...dates)).toISOString() },

@@ -7,12 +7,16 @@ import https from 'node:https';
 import { execFile } from 'node:child_process';
 import { DATA } from './lib.mjs';
 import { compact, joueursDe } from './collecter.mjs';
+import { lirePlanners } from './niveaux.mjs';
 import { ouvrir, ajouterPartie, partieConnue } from './db.mjs';
 
 const LOBBY = path.join(DATA, 'augments-lobby.json');   // { matchId: { placement: [augments] } }
 const MINE = path.join(DATA, 'mes-augments.json');      // { matchId: { ids: [augments], source } }
 const SAMPLE = path.join(DATA, 'client-exemple.json');
 const SESSION = path.join(DATA, 'client-partie.json');  // une partie en cours, pour vérifier ce que le client fournit  // une partie brute, pour vérifier ce que le client fournit
+export const PLANNER = path.join(DATA, 'team-planner.json');   // codes des champions pour les codes d'équipe : { maj, sets: { '18': { suffixe, codes } } }
+const PLANNER_VALIDITE = 864e5;     // relu une fois par jour : un nouveau set arrive avec un patch
+let plannerEssai = 0;               // dernier essai (réussi ou non), pour ne pas insister chaque minute
 const LOCKFILES = ['C:\\Riot Games\\League of Legends\\lockfile', 'D:\\Riot Games\\League of Legends\\lockfile'];
 
 export const lcuState = { lobby: 0, connecte: false, vu: null, parties: 0, avecAugments: 0, note: 'Pas encore vérifié' };
@@ -83,6 +87,19 @@ function findGames(root) {
   };
   walk(root, null);
   return games;
+}
+
+// Codes des champions du planificateur d'équipe, lus dans les données de jeu du client (une fois par jour).
+// Sans eux, l'interface ne peut pas fabriquer de code d'équipe à importer dans TFT.
+export async function majPlanner(c, lire = lcuGet) {
+  const actuel = readJ(PLANNER, null);
+  if (actuel && actuel.sets && Date.now() - actuel.maj < PLANNER_VALIDITE) return false;
+  if (Date.now() - plannerEssai < 3600e3) return false;
+  plannerEssai = Date.now();
+  const sets = lirePlanners(await lire(c, '/lol-game-data/assets/v1/tftchampions-teamplanner.json'));
+  if (!Object.keys(sets).length) return false;
+  fs.writeFileSync(PLANNER, JSON.stringify({ maj: Date.now(), sets }));
+  return true;
 }
 
 // Partie à annoncer après un passage : celle apparue en tête de l'historique du client depuis le passage précédent,

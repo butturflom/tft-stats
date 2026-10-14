@@ -9,9 +9,10 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { exec, execFile, spawn } from 'node:child_process';
 import { ROOT, DATA, loadEnv, updateEnv, loadAugments, Riot } from './lib.mjs';
-import { startLcu, lcuState, currentPuuid } from './lcu.mjs';
+import { startLcu, lcuState, currentPuuid, PLANNER } from './lcu.mjs';
 import { collect, refreshRank, completerPartie, myPuuidFromEnv } from './collecter.mjs';
 import { analyse } from './analyser.mjs';
+import { codesDesCompos } from './niveaux.mjs';
 import { scoutLobby, scoutState, readLobby } from './scout.mjs';
 import { ouvrir, nombreParties, etatFile, rangsCibles, getMeta } from './db.mjs';
 
@@ -388,6 +389,14 @@ const server = http.createServer(async (req, res) => {
 
   if (p === '/api/etat') return json(res, 200, publicState());
   if (p === '/api/lobby') return json(res, 200, { lobby: readLobby(), scout: scoutState });
+  if (p === '/api/codes') {
+    // Codes d'équipe (à coller dans le planificateur de TFT) de chaque compo, par niveau
+    let stats = null, d = null;
+    try { stats = JSON.parse(fs.readFileSync(STATS, 'utf8')); } catch {}
+    try { d = JSON.parse(fs.readFileSync(PLANNER, 'utf8')); } catch {}
+    const planner = stats && d && d.sets && d.sets[stats.set];
+    return json(res, 200, { disponible: !!planner, set: stats ? stats.set : null, client: lcuState.connecte, codes: planner ? codesDesCompos(stats.compos, planner) : {} });
+  }
   if (p === '/api/augments') {
     let cat = { version: null, list: {} };
     try { cat = JSON.parse(fs.readFileSync(path.join(DATA, 'augments-fr.json'), 'utf8')); } catch {}
@@ -474,7 +483,7 @@ server.listen(PORT, MOBILE ? '0.0.0.0' : LOCAL, async () => {
     const imp = getMeta(ouvrir(), 'import');
     if (imp && Date.now() - Date.parse(imp.date) < 120000) log(`Base SQLite créée : ${imp.ajoutees} parties importées (${imp.doublons} doublons, ${imp.illisibles} lignes illisibles écartées). Ancien fichier gardé : data/${imp.renomme || 'parties.jsonl'}`);
   } catch {}
-  if (fmt < 9 && enStock > 0) {
+  if (fmt < 10 && enStock > 0) {
     state.running = true; await runAnalyse(); state.running = false; state.phase = 'idle'; broadcast();
   }
   const fresh = state.lastRun && Date.now() - new Date(state.lastRun).getTime() < 5 * 60000;

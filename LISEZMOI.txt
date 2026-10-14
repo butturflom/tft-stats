@@ -38,7 +38,9 @@ Clé Riot (expire toutes les 24 h)
 
 Onglets
 - Mes compos     : les compos qui marchent dans tes lobbys, avec noyau, objets,
-                   contestation, bascules et duels.
+                   contestation, bascules et duels. « Construire la compo par niveau » :
+                   la compo du niveau 4 au niveau 10, et un bouton pour copier son code
+                   d'équipe (à coller dans le planificateur d'équipe de TFT).
 - Lobby          : au début de chaque partie, ce que jouent les 7 autres joueurs
                    et les carries contestés. Il faut une clé personnelle Riot : la clé
                    de développement n'a pas accès à l'API spectateur (l'overlay le dit).
@@ -73,7 +75,10 @@ Overlay
 - En haut : tier (S, A, B, C, calculé sur tes propres parties), nom, champions avec
   étoiles et objets.
 - ▴/▾ réduit l'overlay à ce bandeau ou affiche les onglets
-  (Aperçu, Unités, Objets, Lobby).
+  (Aperçu, Niveaux, Unités, Objets, Lobby). L'onglet Niveaux montre la compo
+  du niveau 4 au niveau 10 et copie son code d'équipe.
+- Le code d'équipe a besoin des codes des champions, lus dans le client League of Legends :
+  ouvre-le une fois (l'appli les relit chaque jour). Sans cela, le bouton le signale.
 - ⇄ change de compo, ✕ ferme.
 - Style HUD sans barre de titre : glisse l'en-tête pour le déplacer
   (à désactiver dans Réglages si besoin). Sa position est gardée pour la fois suivante ;

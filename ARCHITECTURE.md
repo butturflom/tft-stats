@@ -28,9 +28,10 @@ Application locale pour Windows. Elle collecte les parties classées TFT (EUW) v
 | `lib.mjs` | Lecture de `.env`, `Limiter`, client `Riot`, noms et augments (Data Dragon) | `.env`, caches | `data/noms.json`, `data/augments-fr.json` |
 | `collecter.mjs` | Lit le classement des rangs choisis (Challenger, GM, Master, puis divisions paginées), récupère les parties des joueurs via la file de jobs, compacte, historise ton rang | API Riot, `tft.db` | `tft.db`, `data/rang.jsonl`, `data/collecte.lock` |
 | `db.mjs` | Base SQLite : parties, participants, rangs relevés, rang de chaque partie au moment où elle a été jouée, file de jobs, budget horaire, import de l'ancien `parties.jsonl`, export | `data/parties.jsonl` (une fois) | `data/tft.db` |
-| `analyser.mjs` | Filtre patch, set et rang au moment de la partie, calcule compos, synergies, objets, contestation, rang, tes parties ; bloque la publication si le contrôle échoue | `tft.db`, `rang.jsonl`, `noms.json`, `augments-fr.json`, `app-etat.json` | `data/stats.json` (format 9), `data/qualite.json` |
+| `analyser.mjs` | Filtre patch, set et rang au moment de la partie, calcule compos, synergies, objets, contestation, rang, tes parties ; bloque la publication si le contrôle échoue | `tft.db`, `rang.jsonl`, `noms.json`, `augments-fr.json`, `app-etat.json` | `data/stats.json` (format 10), `data/qualite.json` |
+| `niveaux.mjs` | Composition d'une compo à chaque niveau de 4 à 10 (observée ou reconstituée), codes d'équipe du planificateur de TFT | plateaux d'une compo, `data/team-planner.json` | rien : fonctions appelées par `analyser.mjs` et `app.mjs` |
 | `valider.mjs` | Contrôle chaque partie (schéma, places, doublons, joueur marqué) et le contrôle global de place moyenne (4,5) | parties brutes | rien : fonctions appelées par `analyser.mjs` |
-| `lcu.mjs` | Lit le client LoL local (lockfile) : partie en cours, fin de partie (récap), augments, lobby | client LoL (local) | `tft.db` (tes nouvelles parties), `data/augments-lobby.json`, `data/mes-augments.json`, `data/client-partie.json` |
+| `lcu.mjs` | Lit le client LoL local (lockfile) : partie en cours, fin de partie (récap), augments, lobby | client LoL (local) | `tft.db` (tes nouvelles parties), `data/team-planner.json`, `data/augments-lobby.json`, `data/mes-augments.json`, `data/client-partie.json` |
 | `scout.mjs` | Repère les autres joueurs d'une partie (API spectateur) | API Riot | `data/lobby.json`, `tft.db` (parties et rangs des joueurs du lobby) |
 | `overlay-helper.ps1` | Pilote la fenêtre de l'overlay, sans Electron | commandes sur l'entrée standard | |
 | `installer-electron.bat` | Installe Electron : `npm install`, puis téléchargement de son exécutable (≈ 160 Mo) | | `node_modules/` |
@@ -113,7 +114,7 @@ Mode WAL et `busy_timeout` de 5 s : l'application et `collecter.bat` peuvent éc
 - `seed` : rang de la division d'où vient le joueur **au moment de la collecte**, `MOI` ou `LOBBY`. Sert de repli quand le rang au moment de la partie est inconnu (§5, point 2).
 - **Aucun PUUID dans le JSON** (ni dans `stats.json`, ni dans l'export), sauf l'indicateur `me`. Les PUUID sont dans les tables `participants` et `rangs`, en local, pour dater le rang de chaque partie.
 
-### `stats.json` (format 9)
+### `stats.json` (format 10)
 
 Champs de premier niveau : `format`, `patch`, `set`, `parties`, `plateaux`, `controleMoyenne`, `periode`, `rangs`, `sansCarry`, `ddragon` (version des données Data Dragon utilisée), `contestationGlobale`, `compos`, `traits`, `unites`, `moi`, `unitsIndex`, `itemsIndex`, `rang`, `augmentsLobby`, `qualite`.
 
@@ -122,6 +123,8 @@ Format 7 (13/10/2026) : `metatft`, `recettes`, `deroule`, `augmentsConseilles`, 
 Format 8 (13/10/2026) : section `qualite`, avec le statut (`ok` ou `bloque`), le contrôle de place moyenne, le nombre de parties lues, écartées (schéma, doublons) et retenues, les motifs de rejet, quelques exemples, les seuils et la date de dernière collecte. Si un contrôle échoue, `stats.json` n'est pas réécrit : l'ancien reste affiché, et le motif est écrit dans `data/qualite.json` et affiché dans la bannière de l'application.
 
 Format 9 (13/10/2026) : lecture depuis `tft.db`. `rangs` compte les parties par rang au moment de la partie (repli : `seed`). `qualite` gagne `parties.horsRang`, `rangs` (couverture : `releve`, `approx`, `seed`, `inconnu`, et le filtre appliqué) et `import` (bilan de l'import de `parties.jsonl`). `app.mjs` relance l'analyse si le format lu est inférieur à 9.
+
+Format 10 (14/10/2026) : chaque compo gagne `niveaux`, une liste de 7 entrées (niveaux 4 à 10) : `{ niveau, source, n, unites: [{ id, etoiles, objets }] }`. `source` vaut `observe` quand au moins 12 plateaux de la compo ont fini à ce niveau (champions les plus joués parmi eux), `estime` sinon : champions les plus joués de la compo, limités par le coût qu'on trouve en boutique à ce niveau (3 au niveau 4 et 5, 4 aux niveaux 6 et 7, 5 ensuite), étoiles plafonnées selon le coût, objets seulement dès le niveau 6 (carry) ou 7 (autres porteurs). `app.mjs` relance l'analyse si le format lu est inférieur à 10.
 
 Incrémenter `format` à chaque changement de structure.
 
@@ -169,6 +172,8 @@ Sous Electron, `/api/overlay` accepte toujours `forme` et `bouger` mais ne les t
     - **Essayé en partie le 13/10** (21:05 à 21:42) : ouverture automatique au début de la partie, vue réduite, déplacement (position gardée), aucune erreur au journal. Comme avec Edge, le plein écran exclusif cache l'overlay : mode « Fenêtré sans bordure » nécessaire.
 14. **Fin de partie et client LoL.** `lcu.mjs` relit l'historique du client toutes les 60 s. Une partie arrivée en tête de l'historique est annoncée (journal, récap, rang relu 90 s après), même si la collecte l'a enregistrée avant (`aAnnoncer`). Avant le 13/10, seule une partie ajoutée par le client l'était : « Mettre à jour » juste après une partie supprimait le récap. Le client donne la date en texte : une partie qu'il enregistre en premier est provisoire, écartée par le contrôle (« date invalide »), puis remplacée par celle de l'API 90 s après l'annonce (`completerPartie`) ou à la collecte suivante (`partiesAEnrichir`, il faut `RIOT_ID`). Les 2 parties du 12/10 vues par le client (EUW1_8011797062, EUW1_8011883234, avec tes augments saisis) étaient écartées depuis ; elles seront remplacées à la prochaine collecte.
 15. **Patch inconnu depuis l'été 2026.** L'API Riot donne `game_version` = « TFT Unreal Version ?.?.?.? » pour toutes les parties collectées depuis le 27/08 (6 093 parties sur 6 137 au 13/10). La dernière partie avec un vrai numéro date du 15/07 ; la base n'a rien entre les deux, donc le changement a eu lieu dans cet intervalle. `analyser.mjs` prend le patch de la partie la plus récente : c'est « ? », et le filtre de patch garde toutes les parties depuis le 27/08, sur plusieurs patchs réels. Le filtre de set reste juste (set 18). À traiter avec le filtre par patch (phase 2, pas encore fait) : le patch devra venir d'ailleurs, par exemple de la date de la partie.
+
+16. **Compo par niveau et code d'équipe (14/10/2026).** Le tableau de bord (« Construire la compo par niveau », ouvert d'office pour la compo suivie) et l'onglet Niveaux de l'overlay montrent la compo du niveau 4 au niveau 10. Riot ne donne que le plateau de fin de partie, et très peu de plateaux finissent aux niveaux 4 à 6 : ces niveaux sont reconstitués (pastilles en pointillés), pas observés ; les règles de coût par niveau sont des ordres de grandeur, pas des probabilités de boutique mesurées. Le code d'équipe est `02`, dix emplacements de 3 chiffres hexadécimaux (`000` = vide), puis `TFT` et le numéro du set. Les codes des champions (`team_planner_code`) ne sont pas dans Data Dragon : `lcu.mjs` les lit dans les données de jeu du client LoL (`/lol-game-data/assets/v1/tftchampions-teamplanner.json`), une fois par jour, dans `data/team-planner.json`. Source Riot, locale, pas de site tiers. Le client doit donc avoir été ouvert au moins une fois. `/api/codes` calcule les codes de toutes les compos. **Non vérifié sur le client réel** : l'adresse du fichier dans le client, et l'import du code dans le planificateur de TFT ; le format a été relevé sur un fichier de données de jeu et sur la mémoire du format, pas essayé en jeu.
 
 ## 6. Trajectoire proposée
 
@@ -251,7 +256,7 @@ Sous Electron, `/api/overlay` accepte toujours `forme` et `bouger` mais ne les t
 - Augments conseillés par compo et tier list MetaTFT.
 - Déroulé de partie (plateaux de début de partie et niveaux de relance).
 - Vue hexagonale du plateau, remplacée par une liste d'unités.
-- Bouton « Copier le code d'équipe ».
+- Bouton « Copier le code d'équipe » : **rétabli le 14/10/2026**, sans site tiers (voir §5, point 16).
 - Badges de site, « Hors radar », et tier de l'overlay issu des sites (remplacé par un classement S/A/B/C calculé sur tes propres données).
 - Onglets de l'overlay Début, Niveaux et Augments ; lignes Composants et Relance.
 

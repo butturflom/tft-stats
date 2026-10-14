@@ -8,6 +8,7 @@ Personal statistics for Teamfight Tactics (TFT) ranked games, built on the offic
 
 - Collects ranked EUW matches through the Riot API, from the full ladder (Iron to Challenger) or the ranks you choose, and keeps them in a local SQLite database. Collection runs from a persistent job queue: it resumes where it stopped and respects an hourly request budget.
 - Computes statistics per composition from the collected games: average placement, contestation, carries, items, traits and units. Games are filtered by the rank they were played at, taken from rank snapshots of the players.
+- Shows how to build each composition level by level (4 to 10), and copies a team code to paste into the in-game team planner. The champion codes come from the local League client (`/lol-game-data/assets/v1/tftchampions-teamplanner.json`), read once a day while the client is open.
 - Shows a dashboard, and an overlay with the composition you follow. Both open in Microsoft Edge, or in their own windows with the optional Electron desktop shell, where the overlay is a transparent, always-on-top window that does not take focus from the game.
 - When the League client is open on your PC, reads your augments and the current game from its local lockfile, and shows a recap after each ranked game.
 

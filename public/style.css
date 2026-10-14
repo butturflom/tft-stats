@@ -349,3 +349,20 @@ a.ghost{display:inline-block;text-decoration:none;color:inherit}
 .ovchoice span{font-family:var(--f-mono);font-size:.62rem;color:var(--hd)}
 .ovchoice:hover,.ovchoice.on{border-left-color:var(--hc);background:linear-gradient(90deg,rgba(45,226,255,.16),transparent)}
 @media (prefers-reduced-motion:reduce){.ovlive,.ovbody{animation:none}}
+
+/* Compo par niveau (4 à 10) et code d'équipe */
+.nivwrap{padding:0 14px 12px}
+.nivbar{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 10px}
+.niv{border:1px solid var(--line);background:var(--panel-2);border-radius:8px;padding:4px 12px;font-size:.84rem;font-weight:600;color:var(--muted)}
+.niv.est{border-style:dashed}
+.niv.on{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.nivnote{margin:8px 0 6px}
+.nivcopy{align-items:center;gap:10px;margin-top:6px}
+.copie-etat{font-size:.78rem;color:var(--muted);font-family:var(--f-mono);overflow-wrap:anywhere}
+[aria-disabled="true"][data-copie]{opacity:.55}
+.ovbody .nivbar{gap:3px;margin:0 0 8px}
+.ovbody .niv{border-radius:0;border:1px solid var(--hl);background:transparent;color:var(--hd);padding:1px 8px;font-family:var(--f-mono);font-size:.7rem}
+.ovbody .niv.on{border-color:var(--hc);color:var(--hc);background:rgba(45,226,255,.12);box-shadow:inset 0 0 8px rgba(45,226,255,.25)}
+.ovbody .ovcopy{width:auto;height:auto;padding:3px 10px;font-size:.7rem;font-family:var(--f-mono)}
+.ovbody .nivnote{margin:6px 0 4px}
+.ovbody .copie-etat{color:var(--hc)}

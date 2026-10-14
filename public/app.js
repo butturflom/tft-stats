@@ -132,6 +132,75 @@ function boardHtml(units) {
     return `<div class="u ${k ? 'k' + k : ''}">${stars ? `<em>${stars}</em>` : ''}<i title="${esc(u.nom)}">${unitPic(u.nom, u.img)}</i>${esc(u.nom)}${c.objets && c.objets.length ? `<span class="hit">${c.objets.map(itemPic).join('')}</span>` : ''}</div>`;
   }).join('')}</div>`;
 }
+// ---- Construire la compo niveau par niveau (4 à 10) et copier le code d'équipe ----
+let CODES = { disponible: false, codes: {}, client: false };
+async function loadCodes() { try { CODES = await api('/api/codes'); } catch {} }
+const NIV = {};   // niveau choisi pour chaque compo (identique dans le tableau de bord et dans l'overlay)
+const niveauDe = c => {
+  const l = c.niveaux || [];
+  if (NIV[c.cle] && l.some(x => x.niveau === NIV[c.cle])) return NIV[c.cle];
+  return (l.find(x => x.niveau === Math.min(10, Math.max(4, Math.round(c.niveauMoyen)))) || l[l.length - 1] || {}).niveau;
+};
+function copieBtn(c, niveau, ov) {
+  const x = CODES.codes && CODES.codes[c.cle] && CODES.codes[c.cle][niveau];
+  const titre = x ? `Copie le code de ces ${(c.niveaux.find(n => n.niveau === niveau) || {}).unites?.length || ''} champions : à coller dans le planificateur d'équipe de TFT${x.manquants.length ? ` (${x.manquants.length} champion(s) inconnu(s) du client, ignoré(s))` : ''}`
+    : CODES.disponible ? 'Code indisponible pour cette composition' : 'Codes indisponibles : ouvre le client League of Legends une fois, puis réessaie';
+  return `<button type="button" class="${ov ? 'ovicon ovcopy' : 'ghost mini-btn'}" data-copie="${esc(c.cle)}" data-copie-niv="${niveau}" title="${esc(titre)}"${x ? '' : ' aria-disabled="true"'}>${ov ? '⧉ Code d\'équipe' : 'Copier le code d\'équipe'}</button>`;
+}
+function niveauxHtml(c, ov) {
+  const lv = c.niveaux;
+  if (!lv || !lv.length) return '';
+  const cur = niveauDe(c), n = lv.find(x => x.niveau === cur) || lv[lv.length - 1];
+  const note = n.source === 'observe'
+    ? `Observé sur ${int(n.n)} plateaux de cette compo finis au niveau ${n.niveau}.`
+    : `Reconstitué : seulement ${int(n.n)} plateau${n.n > 1 ? 'x' : ''} de cette compo finissent au niveau ${n.niveau}. On prend les champions les plus joués que la boutique propose à ce niveau.`;
+  const board = ov
+    ? `<div class="ovstrip wrap">${n.unites.map(u => { const i = uIdx(u.id) || { nom: u.id }; return `<div class="ovcard">${ovUnit(u, true)}<span>${esc(i.nom)}</span></div>`; }).join('')}</div>`
+    : boardHtml(n.unites);
+  return `<div class="nivbox" data-cle="${esc(c.cle)}" data-ov="${ov ? 1 : 0}">
+    <div class="nivbar" role="tablist" aria-label="Niveau du joueur">${lv.map(x => `<button type="button" role="tab" class="niv${x.niveau === cur ? ' on' : ''}${x.source === 'estime' ? ' est' : ''}" aria-selected="${x.niveau === cur}" data-niv="${x.niveau}" data-niv-cle="${esc(c.cle)}" title="${x.source === 'observe' ? 'Observé' : 'Reconstitué'} · niveau ${x.niveau}">${ov ? '' : 'Niveau '}${x.niveau}</button>`).join('')}</div>
+    ${board}
+    <p class="nivnote ${ov ? 'ovtxt' : 'muted'}"><small>${esc(note)}</small></p>
+    <div class="row nivcopy">${copieBtn(c, cur, ov)}<span class="copie-etat" aria-live="polite"></span></div>
+  </div>`;
+}
+function copierTexte(t) {
+  const secours = () => {
+    const a = document.createElement('textarea');
+    a.value = t; a.setAttribute('readonly', ''); a.style.cssText = 'position:fixed;opacity:0;top:0;left:0';
+    document.body.appendChild(a); a.select();
+    let ok = false; try { ok = document.execCommand('copy'); } catch {}
+    a.remove(); return ok;
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) return navigator.clipboard.writeText(t).then(() => true, () => secours());
+  return Promise.resolve(secours());
+}
+function majNiveaux(cle) {
+  const c = STATS && STATS.compos.find(x => x.cle === cle);
+  if (!c) return;
+  document.querySelectorAll('.nivbox').forEach(box => {
+    if (box.dataset.cle !== cle) return;
+    const ov = box.dataset.ov === '1', tpl = document.createElement('template');
+    tpl.innerHTML = niveauxHtml(c, ov).trim();
+    box.replaceWith(tpl.content.firstChild);
+  });
+  if (OV) ovFit();
+}
+document.addEventListener('click', async e => {
+  const n = e.target.closest('[data-niv]');
+  if (n) { NIV[n.dataset.nivCle] = Number(n.dataset.niv); majNiveaux(n.dataset.nivCle); return; }
+  const b = e.target.closest('[data-copie]');
+  if (!b) return;
+  const cle = b.dataset.copie, niv = b.dataset.copieNiv;
+  const etat = b.parentElement.querySelector('.copie-etat');
+  const dire = t => { if (etat) { etat.textContent = t; setTimeout(() => { if (etat.textContent === t) etat.textContent = ''; }, 3500); } };
+  let x = CODES.codes[cle] && CODES.codes[cle][niv];
+  if (!x) { await loadCodes(); x = CODES.codes[cle] && CODES.codes[cle][niv]; }
+  if (!x) { dire(CODES.disponible ? 'Pas de code pour cette composition' : 'Ouvre le client League of Legends une fois pour récupérer les codes des champions'); return; }
+  const ok = await copierTexte(x.code);
+  dire(ok ? `✓ Copié : ${x.code}` : `Copie impossible, sélectionne le code : ${x.code}`);
+});
+
 function compCard(c, i) {
   const badges = [];
   if (c.n < 100) badges.push('<span class="badge b-mid">Peu de parties</span>');
@@ -154,6 +223,7 @@ function compCard(c, i) {
         <div class="items" title="Objets du carry">${items.map(itemIcon).join('')}</div></div>
     </div>
     ${c.plateau && c.plateau.length ? `<details class="more"><summary>Plateau et objets</summary>${boardHtml(c.plateau)}</details>` : ''}
+    ${c.niveaux && c.niveaux.length ? `<details class="more"${STATE && STATE.suivie && STATE.suivie.cle === c.cle ? ' open' : ''}><summary>Construire la compo par niveau (4 à 10)</summary><div class="nivwrap">${niveauxHtml(c, false)}</div></details>` : ''}
     <details class="more"><summary>Synergies, contestation et bascules</summary>
       <div class="grid2">
         <div class="block"><h4>Noyau de la compo</h4>
@@ -520,9 +590,9 @@ function contestHtml(carryId, compact) {
     <small class="muted">Repéré ${ago(new Date(LOBBY.t).toISOString())}${LOBBY.source ? ` · via ${esc(LOBBY.source)}` : ''}${age > 3 * 3600e3 ? ' (ancienne partie)' : ''}</small>`;
 }
 // ---- Overlay en jeu : bandeau de la compo (toujours visible) + onglets dépliables ----
-const OV_TABS = [['apercu', 'Aperçu'], ['unites', 'Unités'], ['objets', 'Objets'], ['lobby', 'Lobby']];
+const OV_TABS = [['apercu', 'Aperçu'], ['niveaux', 'Niveaux'], ['unites', 'Unités'], ['objets', 'Objets'], ['lobby', 'Lobby']];
 let OVT = 'apercu';
-try { const v = localStorage.getItem('tft-ov-tab'); OVT = ['apercu', 'unites', 'objets', 'lobby'].includes(v) ? v : 'apercu'; } catch {}
+try { const v = localStorage.getItem('tft-ov-tab'); OVT = ['apercu', 'niveaux', 'unites', 'objets', 'lobby'].includes(v) ? v : 'apercu'; } catch {}
 const costOf = id => { const u = uIdx(id) || {}; return u.cout || COST[u.nom] || 0; };
 // Tier affiché : rang de la compo parmi nos compos (taux de 1res). S = 15 % du haut, puis A, B, C.
 function ovTier(s) {
@@ -550,6 +620,7 @@ function ovPanel(s) {
         ${ovRow('Lobby', !LOBBY ? `<span class="ovtxt muted">${scoutBloque() ? 'Repérage indisponible avec ta clé' : 'Pas encore repéré'}</span>` : contest ? `<span class="ovtxt warn">⚠ ${esc(contest.nom)} joué par ${contest.joueurs.length}</span>` : '<span class="ovtxt good">✓ Carry libre</span>')}
       </div></div>`;
   }
+  if (OVT === 'niveaux') return s.stats && s.stats.niveaux ? niveauxHtml(s.stats, true) : '<p class="muted">Les niveaux ne sont pas encore calculés : relance l\'analyse.</p>';
   if (OVT === 'unites') return `<div class="ovstrip wrap">${s.plateau.slice().sort((a, b) => costOf(a.id) - costOf(b.id)).map(c => { const u = uIdx(c.id) || { nom: c.id }; return `<div class="ovcard">${ovUnit(c, true)}<span>${esc(u.nom)}</span></div>`; }).join('')}</div>`;
   if (OVT === 'objets') {
     const holders = s.plateau.filter(c => c.objets && c.objets.length).sort((a, b) => (b.id === s.carryId) - (a.id === s.carryId));
@@ -817,6 +888,7 @@ async function loadStats() {
   statsVer = STATE && STATE.statsVersion;
   try { renderStatus(); } catch (e) { console.error(e); }
   await loadAug();
+  loadCodes();
   augVer = STATE && STATE.augmentsVersion;
   await loadStats();
   if (TAB === 'reglages') render();
@@ -829,7 +901,7 @@ async function loadStats() {
     if (STATE.lobbyVersion && STATE.lobbyVersion !== lobbyVer) { lobbyVer = STATE.lobbyVersion; loadLobby().then(() => { if (live && !EDITING) render(); }); }
     else if (live && !EDITING && (JSON.stringify(STATE.suivie) !== prevSuivie || (STATE.scout && STATE.scout.statut) !== prevScout)) render();
     try { renderStatus(); } catch (e) { console.error(e); }
-    if (STATE.statsVersion && STATE.statsVersion !== statsVer) { statsVer = STATE.statsVersion; loadAug().then(loadStats); }
+    if (STATE.statsVersion && STATE.statsVersion !== statsVer) { statsVer = STATE.statsVersion; loadAug().then(loadStats).then(loadCodes); }
     else if (STATE.augmentsVersion && STATE.augmentsVersion !== augVer) { augVer = STATE.augmentsVersion; loadAug().then(() => { if (!EDITING) render(); }); }
     if (TAB === 'reglages' && prevKey !== STATE.settings.keyPresent) renderReglages();
   };
