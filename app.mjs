@@ -18,6 +18,7 @@ import { codesDesCompos } from './niveaux.mjs';
 import { releverVersion } from './patchs.mjs';
 import { scoutLobby, scoutState, readLobby } from './scout.mjs';
 import { ouvrir, nombreParties, etatFile, rangsCibles, getMeta } from './db.mjs';
+import { memeSecret, LimiteEssais, cheminDansDossier, lireCorps, riotIdValide } from './securite.mjs';
 
 const PORT = Number(process.env.TFT_PORT) || 3777;   // TFT_PORT : autre port, pour les tests
 const LOCAL = '127.0.0.1';
@@ -263,21 +264,22 @@ function setStartup(on) {
 // ---- Sessions du téléphone (code PIN) ----
 const sessions = new Set((() => { try { return JSON.parse(fs.readFileSync(SESSIONS, 'utf8')); } catch { return []; } })());
 const saveSessions = () => { try { fs.writeFileSync(SESSIONS, JSON.stringify([...sessions].slice(-20))); } catch {} };
-const tries = new Map();
+const essais = new LimiteEssais(5, 10 * 60000);   // 5 codes faux par adresse, puis 10 minutes de pause
 const cookieOf = req => { const m = String(req.headers.cookie || '').match(/(?:^|;\s*)tft_s=([a-f0-9]{48})/); return m ? m[1] : null; };
 const loginPage = (msg = '') => `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>TFT Stats</title>
 <style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#10121a;color:#e8eaf0;font-family:system-ui,"Segoe UI",sans-serif}form{display:grid;gap:12px;width:min(320px,90vw);background:#191c26;border:1px solid #2c3140;border-radius:14px;padding:22px}h1{margin:0;font-size:1.4rem}input{font-size:1.4rem;letter-spacing:.3em;text-align:center;padding:10px;border-radius:10px;border:1px solid #2c3140;background:#20242f;color:inherit}button{padding:10px;border:none;border-radius:10px;background:#e7b33e;color:#17130a;font-weight:700;font-size:1rem}p{margin:0;color:#e2625c;font-size:.9rem}</style></head>
 <body><form method="post" action="/connexion"><h1>TFT Stats</h1><label for="pin">Code PIN</label><input id="pin" name="pin" type="password" inputmode="numeric" autocomplete="off" autofocus required>${msg ? `<p>${msg}</p>` : ''}<button>Entrer</button></form></body></html>`;
-const formBody = req => new Promise(resolve => { let d = ''; req.on('data', c => { d += c; if (d.length > 1000) req.destroy(); }); req.on('end', () => resolve(new URLSearchParams(d))); });
+const formBody = async req => new URLSearchParams((await lireCorps(req, 1000)).texte);
 
 // ---- Serveur HTTP ----
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon' };
 let codesCache = { cle: null, corps: null };
 let statsCache = null;   // stats.json en mémoire (brut et compressé), relu quand le fichier change
 const json = (res, code, obj) => { res.writeHead(code, { 'Content-Type': TYPES['.json'], 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
-const body = req => new Promise(resolve => { let d = ''; req.on('data', c => { d += c; if (d.length > 1e5) req.destroy(); }); req.on('end', () => { try { resolve(JSON.parse(d || '{}')); } catch { resolve({}); } }); });
+const body = async req => { try { const o = JSON.parse((await lireCorps(req, 1e5)).texte || '{}'); return o && typeof o === 'object' && !Array.isArray(o) ? o : {}; } catch { return {}; } };
 
-const server = http.createServer(async (req, res) => {
+// Une erreur dans une route ne doit jamais arrêter le serveur : réponse 500, détail dans le journal
+async function traiter(req, res) {
   const ra = String(req.socket.remoteAddress || '').replace(/^::ffff:/, '');
   const local = ra === '127.0.0.1' || ra === '::1';
   const host = (req.headers.host || '').toLowerCase();
@@ -289,13 +291,11 @@ const server = http.createServer(async (req, res) => {
 
   if (!local) {
     if (p === '/connexion' && req.method === 'POST') {
-      const t = tries.get(ra) || { n: 0, t: 0 };
-      if (t.n >= 5 && Date.now() - t.t < 10 * 60000) { res.writeHead(429, { 'Content-Type': TYPES['.html'] }); return res.end(loginPage('Trop d\'essais : réessaie dans 10 minutes.')); }
+      if (essais.bloque(ra)) { res.writeHead(429, { 'Content-Type': TYPES['.html'] }); return res.end(loginPage('Trop d\'essais : réessaie dans 10 minutes.')); }
       const pin = (await formBody(req)).get('pin') || '';
       const want = readEnv().MOBILE_PIN || '';
-      const ok = want && pin.length === want.length && crypto.timingSafeEqual(Buffer.from(pin), Buffer.from(want));
-      if (!ok) { tries.set(ra, { n: t.n + 1, t: Date.now() }); res.writeHead(401, { 'Content-Type': TYPES['.html'] }); return res.end(loginPage('Code incorrect.')); }
-      tries.delete(ra);
+      if (!memeSecret(pin, want)) { essais.echec(ra); res.writeHead(401, { 'Content-Type': TYPES['.html'] }); return res.end(loginPage('Code incorrect.')); }
+      essais.reussite(ra);
       const tok = crypto.randomBytes(24).toString('hex');
       sessions.add(tok); saveSessions();
       log(`Téléphone connecté (${ra})`);
@@ -376,7 +376,7 @@ const server = http.createServer(async (req, res) => {
       }
       if (typeof b.riotId === 'string') {
         const r = b.riotId.trim();
-        if (r && !/^[^#]{3,16}#[^#]{2,5}$/.test(r)) return json(res, 400, { erreur: 'Le Riot ID doit être au format Pseudo#TAG' });
+        if (r && !riotIdValide(r)) return json(res, 400, { erreur: 'Le Riot ID doit être au format Pseudo#TAG' });
         ch.RIOT_ID = r;
       }
       if (typeof b.rangs === 'string') {
@@ -459,11 +459,20 @@ const server = http.createServer(async (req, res) => {
   if (p.startsWith('/img/')) { await servirImage(res, p); return; }
 
   // Fichiers de l'interface
-  const file = path.normalize(path.join(PUB, p === '/' ? 'index.html' : p));
-  if (!file.startsWith(PUB) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) { res.writeHead(404); return res.end('Introuvable'); }
+  const file = cheminDansDossier(PUB, p === '/' ? 'index.html' : p);
+  if (!file || !fs.existsSync(file) || fs.statSync(file).isDirectory()) { res.writeHead(404); return res.end('Introuvable'); }
   res.writeHead(200, { 'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-cache' });
-  fs.createReadStream(file).pipe(res);
+  fs.createReadStream(file).on('error', () => res.destroy()).pipe(res);
+}
+const server = http.createServer((req, res) => {
+  traiter(req, res).catch(e => {
+    log('Erreur de requête :', req.method, String(req.url).slice(0, 120), '-', e && e.message);
+    if (!res.headersSent) { try { res.writeHead(500); } catch {} }
+    res.end();
+  });
 });
+// Dernier filet : une promesse oubliée est journalisée, elle n'arrête plus l'application
+process.on('unhandledRejection', e => log('Erreur non gérée :', e && e.message || e));
 
 server.on('error', e => {
   if (e.code === 'EADDRINUSE') {

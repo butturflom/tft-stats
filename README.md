@@ -54,6 +54,12 @@ Only two sources are used:
 
 No third-party website is used.
 
+## Security
+
+- The server listens on `127.0.0.1` only, checks the `Host` header (against DNS rebinding) and requires an `X-TFT: 1` header on every `POST`, so a web page you visit cannot change your settings.
+- The optional phone access (`MOBILE=1`) opens the local network behind a PIN: constant-time comparison, 5 wrong codes per address then a 10-minute pause, no access to settings or shutdown from the phone. It uses plain HTTP: use it on a home network only, and prefer a 6 to 8 digit PIN.
+- Security-sensitive helpers (PIN check, attempt limiter, served-file path, request body reading, `.env` values) live in `securite.mjs` and are covered by `tests/securite.test.mjs`.
+
 ## Data and privacy
 
 - Collected data and analysis results stay on your computer, in the `data/` folder. That folder and your `.env` file are never committed.

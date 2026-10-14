@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { valeurEnv } from './securite.mjs';
 
 export const ROOT = path.dirname(fileURLToPath(import.meta.url));
 export const DATA = process.env.TFT_DATA || path.join(ROOT, 'data');
@@ -19,11 +20,11 @@ export function updateEnv(changes) {
   const done = new Set();
   const out = lines.map(l => {
     const m = l.match(/^\s*([A-Z_]+)\s*=/);
-    if (m && Object.prototype.hasOwnProperty.call(changes, m[1])) { done.add(m[1]); return `${m[1]}=${changes[m[1]]}`; }
+    if (m && Object.prototype.hasOwnProperty.call(changes, m[1])) { done.add(m[1]); return `${m[1]}=${valeurEnv(changes[m[1]])}`; }
     return l;
   });
   while (out.length && out[out.length - 1] === '') out.pop();
-  for (const [k, v] of Object.entries(changes)) if (!done.has(k)) out.push(`${k}=${v}`);
+  for (const [k, v] of Object.entries(changes)) if (!done.has(k)) out.push(`${k}=${valeurEnv(v)}`);
   fs.writeFileSync(file, out.join('\r\n') + '\r\n');
 }
 
