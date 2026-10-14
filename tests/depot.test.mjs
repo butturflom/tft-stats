@@ -65,3 +65,13 @@ test('le README et le pied de page de l\'interface contiennent la mention légal
   for (const f of ['README.md', 'public/index.html']) assert.match(lire(path.join(racine, f)), /isn't endorsed by Riot Games/, f);
   assert.match(lire(path.join(racine, 'public', 'index.html')), /<footer class="pied">/);
 });
+
+test('le code n\'écrit plus de copie brute du client LoL (identifiants et noms des joueurs du lobby)', () => {
+  const sources = suivis().filter(f => /\.(mjs|js)$/.test(f) && !f.includes(`${path.sep}tests${path.sep}`));
+  const fautifs = sources.filter(f => /client-exemple|client-partie/.test(lire(f)));
+  assert.deepEqual(fautifs.map(f => path.relative(racine, f)), []);
+  // lcu.mjs n'écrit que ses fichiers utiles : codes d'équipe, icônes, augments
+  // (icônes : path.join(dossier, …), les trois autres : une constante de fichier)
+  const ecrits = [...lire(path.join(racine, 'lcu.mjs')).matchAll(/writeFileSync\(\s*([\w.]+)/g)].map(m => m[1]).sort();
+  assert.deepEqual(ecrits, ['LOBBY', 'MINE', 'PLANNER', 'path.join']);
+});

@@ -13,8 +13,6 @@ import { ouvrir, ajouterPartie, partieConnue } from './db.mjs';
 
 const LOBBY = path.join(DATA, 'augments-lobby.json');   // { matchId: { placement: [augments] } }
 const MINE = path.join(DATA, 'mes-augments.json');      // { matchId: { ids: [augments], source } }
-const SAMPLE = path.join(DATA, 'client-exemple.json');
-const SESSION = path.join(DATA, 'client-partie.json');  // une partie en cours, pour vérifier ce que le client fournit
 export const PLANNER = path.join(DATA, 'team-planner.json');   // codes des champions pour les codes d'équipe : { maj, sets: { '18': { suffixe, codes } } }
 const PLANNER_VALIDITE = 864e5;     // relu une fois par jour : un nouveau set arrive avec un patch
 let plannerEssai = 0;               // dernier essai (réussi ou non), pour ne pas insister chaque minute
@@ -164,7 +162,6 @@ async function poll(onNew, onGame) {
     await majIcones(c).catch(() => {});
     const games = findGames(hist);
     lcuState.parties = games.length;
-    if (games[0] && !fs.existsSync(SAMPLE)) { try { fs.writeFileSync(SAMPLE, JSON.stringify(games[0].raw, null, 1)); } catch {} }
     // Nouvelles parties classées : ajoutées tout de suite, sans attendre la prochaine collecte
     const db = ouvrir(), fresh = [];
     let tete = null;
@@ -227,8 +224,6 @@ async function phaseCheck(onStart) {
     if (sess && sess.phase === 'InProgress' && gid && gid !== lastGameId && /TFT/i.test(mode || 'TFT')) {
       lastGameId = gid;
       const me = await lcuGet(creds, '/lol-summoner/v1/current-summoner');
-      // Première partie observée : on garde la réponse du client pour pouvoir vérifier ce qu'elle contient
-      try { if (!fs.existsSync(SESSION)) fs.writeFileSync(SESSION, JSON.stringify(sess, null, 1)); } catch {}
       const puuids = [...collectPuuids(sess)].filter(p => p !== (me && me.puuid));
       lcuState.lobby = puuids.length;
       if (me && me.puuid) onStart({ gameId: gid, puuid: me.puuid, puuids, queueId: sess?.gameData?.queue?.id ?? null });
