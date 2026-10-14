@@ -31,10 +31,23 @@ function fromLockfile() {
   }
   return null;
 }
-function fromProcess() {
+// Le client LoL est-il lancé ? tasklist (programme de Windows, ≈ 0,09 s) évite de lancer PowerShell (≈ 0,4 s) à chaque
+// relevé quand le client est fermé. Renvoie true ou false, ou null quand on ne peut pas le savoir (alors PowerShell décide).
+// `lancer` : execFile, remplaçable dans les tests.
+export function clientLance(lancer = execFile) {
   return new Promise(resolve => {
     if (process.platform !== 'win32') return resolve(null);
-    execFile('powershell', ['-NoProfile', '-Command', "(Get-CimInstance Win32_Process -Filter \"Name='LeagueClientUx.exe'\").CommandLine"],
+    lancer('tasklist', ['/FI', 'IMAGENAME eq LeagueClientUx.exe', '/NH', '/FO', 'CSV'], { windowsHide: true, timeout: 5000 }, (err, out) => {
+      if (err) return resolve(null);
+      resolve(/LeagueClientUx\.exe/i.test(String(out)));
+    });
+  });
+}
+export async function fromProcess(lancer = execFile, dejaLance = clientLance) {
+  if (await dejaLance(lancer) === false) return null;
+  return new Promise(resolve => {
+    if (process.platform !== 'win32') return resolve(null);
+    lancer('powershell', ['-NoProfile', '-Command', "(Get-CimInstance Win32_Process -Filter \"Name='LeagueClientUx.exe'\").CommandLine"],
       { windowsHide: true, timeout: 15000 }, (err, out) => {
         if (err || !out) return resolve(null);
         const port = String(out).match(/--app-port=(\d+)/), pass = String(out).match(/--remoting-auth-token=([\w-]+)/);

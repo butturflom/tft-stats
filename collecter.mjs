@@ -49,12 +49,21 @@ export async function myPuuidFromEnv(riot, env) {
   cachedPuuid = puuid ? { riotId, puuid } : null;
   return puuid;
 }
+// Requêtes faites hors de la collecte (rang relu, partie complétée, repérage du lobby) : elles comptent aussi dans le budget
+// horaire, sinon la collecte suivante dépasserait ce que tu as réglé. `avant` : requêtes déjà comptées de ce client.
+export function compterRequetes(riot, avant = 0) {
+  const n = Number(riot && riot.count) - avant;
+  if (!(n > 0)) return 0;
+  try { noterRequetes(ouvrir(), n); return n; } catch { return 0; }
+}
 // Pour l'application : relire le rang (après une partie)
 export async function refreshRank() {
   const env = loadEnv();
   const riot = new Riot(env);
-  const puuid = await myPuuidFromEnv(riot, env);
-  return puuid ? fetchRank(riot, puuid) : null;
+  try {
+    const puuid = await myPuuidFromEnv(riot, env);
+    return puuid ? await fetchRank(riot, puuid) : null;
+  } finally { compterRequetes(riot); }
 }
 // Pour l'application, après une partie : si elle n'est connue que par le client LoL (provisoire, voir
 // partiesAEnrichir), elle est remplacée tout de suite par celle de l'API. Renvoie true si elle a été remplacée.
@@ -63,13 +72,16 @@ export async function completerPartie(id, { env = null, riot = null } = {}) {
   if (!partiesAEnrichir(db).has(id)) return false;
   env = env || loadEnv();
   riot = riot || new Riot(env);
-  const puuid = await myPuuidFromEnv(riot, env);
-  if (!puuid) return false;
-  const m = await riot.regionGet(`/tft/match/v1/matches/${id}`);
-  const rec = compact(m, 'MOI', puuid);
-  if (!rec) return false;
-  remplacerPartie(db, rec, joueursDe(m));
-  return true;
+  const avant = Number(riot.count) || 0;
+  try {
+    const puuid = await myPuuidFromEnv(riot, env);
+    if (!puuid) return false;
+    const m = await riot.regionGet(`/tft/match/v1/matches/${id}`);
+    const rec = compact(m, 'MOI', puuid);
+    if (!rec) return false;
+    remplacerPartie(db, rec, joueursDe(m));
+    return true;
+  } finally { compterRequetes(riot, avant); }
 }
 
 const pidAlive = pid => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };

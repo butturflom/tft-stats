@@ -9,12 +9,15 @@ import path from 'node:path';
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tft-robuste-'));
 process.env.TFT_DATA = dir;
 const { Riot, fetchDelai, ecrireAtomique, sansChevauchement } = await import('../lib.mjs');
-const { myPuuidFromEnv, compact } = await import('../collecter.mjs');
+const { myPuuidFromEnv, compact, compterRequetes } = await import('../collecter.mjs');
+const { scoutLobby, scoutState } = await import('../scout.mjs');
 const { periodeDe, lireRangs } = await import('../analyser.mjs');
 const D = await import('../db.mjs');
 after(() => { D.fermer(); fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); });
 
-const CLE = 'RGAPI-' + '0123abcd-4567-89ab-cdef-0123456789ab';   // construite : le test d'hygiène refuse toute clé écrite en clair
+const CLE = 'RGAPI-' + '0123abcd-4567-89ab-cdef-0123456789ab';
+const CLE_B = 'RGAPI-' + 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+const CLE_C = 'RGAPI-' + '11111111-2222-3333-4444-555555555555';   // construite : le test d'hygiène refuse toute clé écrite en clair
 
 test('Riot : plateforme et région contrôlées, la clé ne part jamais vers un autre hôte', () => {
   const ok = extra => new Riot({ RIOT_API_KEY: CLE, ...extra });
@@ -40,7 +43,7 @@ test('Riot : chaque requête va vers *.api.riotgames.com avec un délai d\'atten
   const vrai = globalThis.fetch;
   globalThis.fetch = async (url, options = {}) => { vus.push({ url: String(url), cle: options.headers && options.headers['X-Riot-Token'], signal: options.signal }); return { status: 200, ok: true, json: async () => ({ ok: 1 }) }; };
   try {
-    const riot = new Riot({ RIOT_API_KEY: CLE, RIOT_PLATFORM: 'na1', RIOT_REGION: 'americas' });
+    const riot = new Riot({ RIOT_API_KEY: CLE_B, RIOT_PLATFORM: 'na1', RIOT_REGION: 'americas' });
     riot.limiter.take = async () => {};
     await riot.platformGet('/tft/league/v1/challenger');
     await riot.regionGet('/tft/match/v1/matches/NA1_1');
@@ -48,7 +51,7 @@ test('Riot : chaque requête va vers *.api.riotgames.com avec un délai d\'atten
   assert.equal(vus.length, 2);
   assert.equal(new URL(vus[0].url).host, 'na1.api.riotgames.com');
   assert.equal(new URL(vus[1].url).host, 'americas.api.riotgames.com');
-  for (const v of vus) { assert.equal(v.cle, CLE); assert.ok(v.signal instanceof AbortSignal, 'pas de délai d\'attente'); }
+  for (const v of vus) { assert.equal(v.cle, CLE_B); assert.ok(v.signal instanceof AbortSignal, 'pas de délai d\'attente'); }
 });
 
 test('fetchDelai : une réponse qui ne vient pas est abandonnée au lieu de bloquer', async () => {
@@ -135,4 +138,57 @@ test('relevés de rang : une ligne coupée ou invalide est ignorée, les autres 
   assert.deepEqual(pts.map(p => p.t), [1, 2]);
   assert.deepEqual(lireRangs(''), []);
   assert.deepEqual(lireRangs('\n\n'), []);
+});
+
+test('quota Riot : un seul limiteur par clé, partagé par tous les clients (collecte, lobby, rang)', () => {
+  const a = new Riot({ RIOT_API_KEY: CLE }), b = new Riot({ RIOT_API_KEY: CLE, RIOT_PLATFORM: 'na1' });
+  assert.equal(a.limiter, b.limiter, 'deux clients de la même clé doivent se partager le quota');
+  assert.notEqual(a.limiter, new Riot({ RIOT_API_KEY: CLE_C }).limiter, 'une autre clé a son propre quota');
+  assert.equal(a.limiter.limits[0][0], 19);
+  assert.equal(a.limiter.limits[1][0], 98);
+});
+
+test('budget horaire : les requêtes hors collecte sont comptées', () => {
+  const db = D.ouvrir();
+  const avant = D.requetesDerniereHeure(db);
+  assert.equal(compterRequetes({ count: 7 }), 7);
+  assert.equal(D.requetesDerniereHeure(db), avant + 7);
+  assert.equal(compterRequetes({ count: 10 }, 4), 6, 'seulement les requêtes faites depuis « avant »');
+  assert.equal(D.requetesDerniereHeure(db), avant + 13);
+  for (const x of [{ count: 0 }, { count: 3 }, {}, null, undefined, { count: NaN }]) assert.equal(compterRequetes(x, x && x.count === 3 ? 3 : 0), 0);
+  assert.equal(D.requetesDerniereHeure(db), avant + 13, 'rien n\'est ajouté pour zéro requête ou une valeur inutilisable');
+});
+
+// Faux client Riot pour le repérage : 3 requêtes par joueur (compte, rang, liste de parties)
+function fauxRiotLobby({ pannePourIds = false } = {}) {
+  const r = {
+    count: 0,
+    async platformGet() { r.count++; return [{ queueType: 'RANKED_TFT', tier: 'GOLD', rank: 'II', leaguePoints: 50 }]; },
+    async regionGet(p) {
+      r.count++;
+      if (p.includes('/accounts/by-puuid/')) return { gameName: 'Joueur', tagLine: 'EUW' };
+      if (p.includes('/ids')) { if (pannePourIds && p.includes('/p2/')) throw new Error('panne'); return []; }
+      return null;
+    },
+  };
+  return r;
+}
+
+test('repérage du lobby : toutes ses requêtes sont comptées dans le budget horaire, même en cas d\'erreur', async () => {
+  const db = D.ouvrir();
+  const noms = { units: {}, traits: {} };
+  let avant = D.requetesDerniereHeure(db);
+  const riot = fauxRiotLobby();
+  const sortie = await scoutLobby({ puuid: 'moi', puuids: ['p1', 'p2'], riot, noms });
+  assert.equal(sortie.joueurs.length, 2);
+  assert.equal(riot.count, 6);
+  assert.equal(D.requetesDerniereHeure(db), avant + 6);
+  assert.equal(scoutState.statut, 'fini');
+  // Panne au deuxième joueur : le repérage échoue, mais les 6 requêtes déjà faites sont comptées
+  avant = D.requetesDerniereHeure(db);
+  const riot2 = fauxRiotLobby({ pannePourIds: true });
+  assert.equal(await scoutLobby({ puuid: 'moi', puuids: ['p1', 'p2'], riot: riot2, noms }), null);
+  assert.equal(scoutState.statut, 'erreur');
+  assert.equal(riot2.count, 6);
+  assert.equal(D.requetesDerniereHeure(db), avant + 6);
 });

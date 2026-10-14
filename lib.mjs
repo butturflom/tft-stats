@@ -87,6 +87,10 @@ export class Limiter {
   }
 }
 
+// Une seule limite par clé : la collecte, le repérage du lobby et le relevé du rang créent chacun leur client Riot,
+// mais la clé de développement n'a qu'un quota pour tous (20 requêtes par seconde, 100 par 2 minutes).
+const limiteurs = new Map();
+
 export class Riot {
   constructor(env) {
     this.key = env.RIOT_API_KEY || '';
@@ -97,7 +101,8 @@ export class Riot {
     // enverrait la clé à un autre serveur. On n'accepte que les plateformes (euw1, na1, kr…) et régions de Riot.
     if (!/^[a-z]{2,4}\d?$/.test(this.platform)) throw new Error('RIOT_PLATFORM invalide dans .env (attendu : euw1, na1, kr…)');
     if (!/^(americas|asia|europe|sea)$/.test(this.region)) throw new Error('RIOT_REGION invalide dans .env (attendu : europe, americas, asia ou sea)');
-    this.limiter = new Limiter();
+    if (!limiteurs.has(this.key)) limiteurs.set(this.key, new Limiter());
+    this.limiter = limiteurs.get(this.key);
     this.count = 0;
   }
   async get(host, p, tries = 0) {

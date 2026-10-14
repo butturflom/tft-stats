@@ -3,7 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { DATA, loadEnv, Riot, loadNames, prettyId } from './lib.mjs';
-import { compact, joueursDe } from './collecter.mjs';
+import { compact, joueursDe, compterRequetes } from './collecter.mjs';
 import { ouvrir, ajouterPartie, ajouterRang } from './db.mjs';
 import { currentLobby } from './lcu.mjs';
 
@@ -44,18 +44,19 @@ async function participants(riot, moi, donnes) {
   }
 }
 
-export async function scoutLobby({ puuid, gameId = null, puuids = null, log = () => {} }) {
+// riot, noms : fournis par les tests ; sinon le client Riot du .env et les noms de Data Dragon.
+export async function scoutLobby({ puuid, gameId = null, puuids = null, log = () => {}, riot: riotFourni = null, noms = null }) {
   if (scoutState.statut === 'en cours') return readLobby();
   const prev = readLobby();
   if (gameId && prev && prev.gameId === gameId && prev.joueurs && prev.joueurs.length) return prev;
   scoutState.statut = 'en cours'; scoutState.erreur = null;
+  let riot = null;
   try {
-    const env = loadEnv();
-    const riot = new Riot(env);
+    riot = riotFourni || new Riot(loadEnv());
     const { puuids: autres, source, gameId: gid } = await participants(riot, puuid, puuids);
     if (!autres.length) throw new Error('aucun autre joueur trouvé dans cette partie');
     scoutState.source = source;
-    const names = await loadNames();
+    const names = noms || await loadNames();
     const db = ouvrir();
     const joueurs = [];
     for (const p of autres) {
@@ -109,5 +110,8 @@ export async function scoutLobby({ puuid, gameId = null, puuids = null, log = ()
     scoutState.statut = 'erreur'; scoutState.erreur = e.message;
     log('Repérage du lobby impossible : ' + e.message);
     return null;
+  } finally {
+    // Jusqu'à 80 requêtes pour 7 joueurs : comptées dans le budget horaire, même si le repérage a échoué en route
+    if (riot) compterRequetes(riot);
   }
 }
