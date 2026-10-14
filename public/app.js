@@ -25,7 +25,7 @@ const rangsChoisis = r => { const s = String(r || '').trim().toUpperCase(); retu
 
 let STATE = null, STATS = null, ICONS = {}, statsVer = null, TAB = 'compos';
 let AUG = { version: null, augments: {} }, augVer = null, EDITING = false;
-const UI = { nl: 9, nsort: 'avgAdj', nmin: 20, nq: '', aq: '', q: '', minN: 100, sort: 'top1Adj', tq: '', star: 'all', uq: '' };
+const UI = { nl: 9, nsort: 'avgAdj', nmin: 10, nq: '', aq: '', q: '', minN: 100, sort: 'top1Adj', tq: '', star: 'all', uq: '' };
 try { const t = localStorage.getItem('tft-tab'); if (t && !['objets', 'sites'].includes(t)) TAB = t; } catch {}
 
 // ---- Icônes ----
@@ -293,6 +293,13 @@ function renderCompos() {
 // ---- Onglet : Classement par niveau ----
 // Compos classées sur les plateaux qui ont fini à un niveau donné : à niveau égal, la comparaison entre compos est juste.
 const NIV_TRI = { avgAdj: [c => c.avgAdj, 1], top1Adj: [c => c.top1Adj, -1], top4: [c => c.top4, -1], n: [c => c.n, -1] };
+// Champions de la compo au niveau choisi (les mêmes que dans « Construire la compo par niveau »), sans les objets
+function compoAuNiveau(c, niveau) {
+  const n = (c.niveaux || []).find(x => x.niveau === niveau);
+  if (!n) return esc(c.nom);
+  const tri = n.unites.slice().sort((a, b) => ((uIdx(a.id) || {}).cout || 0) - ((uIdx(b.id) || {}).cout || 0));
+  return boardHtml(tri.map(u => ({ id: u.id, etoiles: u.etoiles, objets: [] }))) + (n.source === 'estime' ? '<small class="muted">composition reconstituée</small>' : '');
+}
 function renderClassementNiveaux() {
   const el = $('#tab-niveaux');
   if (!STATS) { el.innerHTML = `<h2>Classement par niveau</h2>${noData()}`; return; }
@@ -301,8 +308,9 @@ function renderClassementNiveaux() {
   if (!niveaux.length) { el.innerHTML = `<h2>Classement par niveau</h2><div class="empty">Pas encore de données par niveau : relance l'analyse dans Réglages.</div>`; return; }
   if (!glob[UI.nl]) UI.nl = niveaux[niveaux.length - 1];
   const g = glob[UI.nl], q = norm(UI.nq), [cle, sens] = NIV_TRI[UI.nsort] || NIV_TRI.avgAdj;
-  const lignes = STATS.compos.filter(c => c.parNiveau && c.parNiveau[UI.nl] && c.parNiveau[UI.nl].n >= UI.nmin && (!q || norm(c.nom).includes(q)))
+  const lignes = STATS.compos.filter(c => c.parNiveau && c.parNiveau[UI.nl] && c.parNiveau[UI.nl].n >= UI.nmin && (!q || norm(c.nom + ' ' + c.noyau.map(u => u.nom).join(' ')).includes(q)))
     .map(c => ({ c, s: c.parNiveau[UI.nl] })).sort((a, b) => sens * (cle(a.s) - cle(b.s)) || b.s.n - a.s.n);
+  const dispo = STATS.compos.filter(c => c.parNiveau && c.parNiveau[UI.nl]).length;
   const ecart = x => `<span class="${x < -0.05 ? 'good' : x > 0.05 ? 'bad' : ''}">${x > 0 ? '+' : x < 0 ? '−' : ''}${f2(Math.abs(x))}</span>`;
   el.innerHTML = `<h2>Classement par niveau</h2>
     <p class="lead">Chaque compo est jugée sur les seuls plateaux qui ont fini <b>au niveau choisi</b>. Le niveau de fin dépend de la survie (un joueur éliminé tôt est au niveau 6), donc les chiffres ne se comparent qu'<b>entre compos du même niveau</b> : la colonne « Écart » dit de combien la compo fait mieux (−) ou moins bien (+) que la moyenne des plateaux de ce niveau.</p>
@@ -310,11 +318,11 @@ function renderClassementNiveaux() {
     <div class="facts"><span><b>${int(g.plateaux)}</b> plateaux finis au niveau ${UI.nl}</span><span>place moyenne <b>${f2(g.avg)}</b></span><span>1re place <b>${pct(g.top1)}</b></span><span>top 4 <b>${pct(g.top4, 0)}</b></span></div>
     <div class="toolbar">
       <input type="search" id="nq" placeholder="Chercher une compo" value="${esc(UI.nq)}" aria-label="Rechercher">
-      <select id="nmin" aria-label="Taille minimale">${[[10, '10 plateaux et plus'], [20, '20 plateaux et plus'], [50, '50 plateaux et plus'], [100, '100 plateaux et plus']].map(([v, l]) => `<option value="${v}" ${UI.nmin == v ? 'selected' : ''}>${l}</option>`).join('')}</select>
+      <select id="nmin" aria-label="Taille minimale">${[[1, '1 plateau et plus'], [3, '3 plateaux et plus'], [5, '5 plateaux et plus'], [10, '10 plateaux et plus'], [20, '20 plateaux et plus'], [50, '50 plateaux et plus'], [100, '100 plateaux et plus']].map(([v, l]) => `<option value="${v}" ${UI.nmin == v ? 'selected' : ''}>${l}</option>`).join('')}</select>
       <select id="nsort" aria-label="Trier">${[['avgAdj', 'Meilleure place moyenne'], ['top1Adj', 'Plus de 1res places'], ['top4', 'Plus de top 4'], ['n', 'Plus jouées à ce niveau']].map(([v, l]) => `<option value="${v}" ${UI.nsort === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
     </div>
-    <div class="tablewrap"><table><thead><tr><th class="n">#</th><th>Compo</th><th class="n">Plateaux</th><th class="n">Part du niveau</th><th class="n">1re place</th><th class="n">Top 4</th><th class="n">Place moy.</th><th class="n" title="Place moyenne corrigée (retour à la moyenne du niveau) moins la moyenne du niveau">Écart</th><th></th></tr></thead>
-    <tbody>${lignes.length ? lignes.map(({ c, s }, i) => `<tr><td class="n">${i + 1}</td><td><span class="mini k${COST[c.carry] || 0}">${c.carryImg ? `<i>${unitPic(c.carry, c.carryImg)}</i>` : ''}${esc(c.nom)}</span></td><td class="n">${int(s.n)}</td><td class="n">${pct(s.n / g.plateaux)}</td><td class="n">${pct(s.top1Adj)}</td><td class="n">${pct(s.top4, 0)}</td><td class="n">${f2(s.avg)} <small class="muted">±${f2(s.ci)}</small></td><td class="n">${ecart(s.ecart)}</td><td><button type="button" class="ghost mini-btn" data-voir="${esc(c.cle)}" title="Ouvre la compo, à ce niveau">Voir la compo</button></td></tr>`).join('') : `<tr><td colspan="9"><div class="empty">Aucune compo n'a assez de plateaux à ce niveau. Baisse la taille minimale.</div></td></tr>`}</tbody></table></div>`;
+    <div class="tablewrap"><table><thead><tr><th class="n">#</th><th>Composition au niveau ${UI.nl}</th><th class="n">Plateaux</th><th class="n">Part du niveau</th><th class="n">1re place</th><th class="n">Top 4</th><th class="n">Place moy.</th><th class="n" title="Place moyenne corrigée (retour à la moyenne du niveau) moins la moyenne du niveau">Écart</th><th></th></tr></thead>
+    <tbody>${lignes.length ? lignes.map(({ c, s }, i) => `<tr><td class="n">${i + 1}</td><td class="cpl" title="${esc(c.nom)}">${compoAuNiveau(c, UI.nl)}</td><td class="n">${int(s.n)}</td><td class="n">${pct(s.n / g.plateaux)}</td><td class="n">${pct(s.top1Adj)}</td><td class="n">${pct(s.top4, 0)}</td><td class="n">${f2(s.avg)} <small class="muted">±${f2(s.ci)}</small></td><td class="n">${ecart(s.ecart)}</td><td><button type="button" class="ghost mini-btn" data-voir="${esc(c.cle)}" title="Ouvre la compo, à ce niveau">Voir la compo</button></td></tr>`).join('') : `<tr><td colspan="9"><div class="empty">Aucune compo n'a assez de plateaux à ce niveau avec cette taille minimale.${dispo ? ` ${dispo} compo${dispo > 1 ? 's ont' : ' a'} au moins 1 plateau fini au niveau ${UI.nl} : baisse la taille minimale.` : ''}</div></td></tr>`}</tbody></table></div>`;
   el.querySelectorAll('[data-nl]').forEach(b => b.onclick = () => { UI.nl = Number(b.dataset.nl); renderClassementNiveaux(); });
   $('#nq').oninput = e => { UI.nq = e.target.value; const pos = e.target.selectionStart; renderClassementNiveaux(); const n = $('#nq'); n.focus(); n.setSelectionRange(pos, pos); };
   $('#nmin').onchange = e => { UI.nmin = Number(e.target.value); renderClassementNiveaux(); };

@@ -34,7 +34,7 @@ test('analyse : import de parties.jsonl, parties valides retenues, doublon et pa
   const sortie = lancer(dir);
   assert.equal(sortie.status, 0, sortie.stderr);
   const stats = JSON.parse(fs.readFileSync(path.join(dir, 'stats.json'), 'utf8'));
-  assert.equal(stats.format, 12);
+  assert.equal(stats.format, 13);
   assert.equal(stats.qualite.statut, 'ok');
   // Le doublon est écarté dès l'import dans la base SQLite, puis compté dans le bilan d'import
   assert.equal(stats.qualite.import.lues, 42);

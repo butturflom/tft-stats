@@ -366,3 +366,10 @@ a.ghost{display:inline-block;text-decoration:none;color:inherit}
 .ovbody .ovcopy{width:auto;height:auto;padding:3px 10px;font-size:.7rem;font-family:var(--f-mono)}
 .ovbody .nivnote{margin:6px 0 4px}
 .ovbody .copie-etat{color:var(--hc)}
+
+/* Classement par niveau : la compo en colonne */
+td.cpl{min-width:300px;max-width:560px;white-space:normal}
+td.cpl .units{gap:4px}
+td.cpl .u{width:46px;font-size:.58rem}
+td.cpl .u i{width:36px;height:36px}
+td.cpl small{display:block;margin-top:2px}

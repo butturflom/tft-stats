@@ -10,7 +10,7 @@ import { lireJournal, patchDe, releverVersion } from './patchs.mjs';
 import { ouvrir, lireParties, rangsDesParties, getMeta, rangsCibles } from './db.mjs';
 
 const MIN_N = 30;          // taille minimale pour lister une compo
-const MIN_NIVEAU = 5;       // plateaux minimum pour garder une compo à un niveau donné (le classement par niveau a son propre seuil)
+const MIN_NIVEAU = 1;       // plateaux minimum pour garder une compo à un niveau donné ; l'interface choisit son seuil (très peu de plateaux finissent aux niveaux 4 et 5)
 const K_AVG = 40;          // poids du « retour à la moyenne » sur la place moyenne
 const PRIOR = [5, 35];     // a priori sur la 1re place : 12,5 % avec un poids de 40 plateaux
 const COST = { 0: 1, 1: 2, 2: 3, 4: 4, 6: 5 };
@@ -470,7 +470,7 @@ export async function analyse({ tous = false, quiet = false } = {}) {
   const dates = recs.map(r => r.t);
   const out = {
     genere: new Date().toISOString(),
-    format: 12,
+    format: 13,
     // « patch » : seulement quand il décrit vraiment les parties retenues (Riot le donne, ou PATCH_SEUL=1) ; sinon « ? ».
     // « patchCourant » : patch en vigueur d'après le journal local (data/patchs.json), « patchs » : parties de chaque patch du journal.
     patch: patchRiot || patchSeul ? patch : '?', patchSeul, set,
