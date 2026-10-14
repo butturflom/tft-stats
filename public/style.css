@@ -408,3 +408,16 @@ details.more>.units,.nivbox .units{align-items:flex-start}
 .ovpager span{display:grid;justify-items:center;font-family:var(--f-mono);font-size:.7rem;color:#dff8ff;letter-spacing:.06em}
 .ovpager small{font-size:.58rem;color:var(--hd);letter-spacing:.04em}
 .ovpager .ovicon[disabled]{opacity:.35;cursor:default}
+
+/* Barres de défilement : fines et discrètes, aux couleurs du thème (celles de Windows, claires et de 15 px, ne vont pas avec l'interface) */
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--line);border-radius:99px;border:2px solid transparent;background-clip:padding-box}
+::-webkit-scrollbar-thumb:hover{background:var(--muted);background-clip:padding-box;border:2px solid transparent}
+::-webkit-scrollbar-button{display:none;width:0;height:0}
+::-webkit-scrollbar-corner{background:transparent}
+/* Overlay : 4 px au bord de la fenêtre, jamais de barre horizontale, la largeur du contenu ne bouge presque pas */
+html.ov,.ov body{overflow-x:hidden}
+.ov ::-webkit-scrollbar{width:4px;height:4px}
+.ov ::-webkit-scrollbar-thumb{background:rgba(45,226,255,.7);border-radius:0;border:0;background-clip:border-box}
+.ov ::-webkit-scrollbar-thumb:hover{background:var(--hc);border:0}
