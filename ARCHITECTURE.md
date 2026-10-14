@@ -1,6 +1,6 @@
 # TFT Stats : architecture
 
-Document de référence. Les parties 1 à 5 décrivent l'état **réel** du code, constaté le 13/10/2026 après la phase 3 (coque Electron). La partie 6 propose la trajectoire, la partie 7 liste les décisions, la partie 8 fixe le périmètre des données.
+Document de référence. Les parties 1 à 5 décrivent l'état **réel** du code, constaté le 14/10/2026 (après la phase 3, coque Electron, puis compo par niveau, code d'équipe, journal des patchs, classement par niveau, images et performances : §5, points 15 à 17). La partie 6 propose la trajectoire, la partie 7 liste les décisions, la partie 8 fixe le périmètre des données.
 
 ---
 
@@ -41,7 +41,7 @@ Application locale pour Windows. Elle collecte les parties classées TFT (EUW) v
 | `public/` | Tableau de bord et overlay (`app.js`, `index.html`, `style.css`) | `/api/*` | |
 | `scripts/verifier-syntaxe.mjs` | Vérifie la syntaxe de tous les fichiers JavaScript (`npm run lint`) | sources | |
 | `scripts/exporter.mjs` | Exporte les parties en JSON Lines (`npm run export`) | `tft.db` | `data/export-parties.jsonl` |
-| `tests/` | Tests (`npm test`) : hygiène du dépôt, `compact()`, `valider.mjs`, analyse de bout en bout, base SQLite, collecte avec un faux client Riot, coque Electron (fonctions, dialogue entre le serveur et Electron) | sources | dossiers temporaires |
+| `tests/` | Tests (`npm test`) : hygiène du dépôt, `compact()`, `valider.mjs`, analyse de bout en bout, base SQLite, collecte avec un faux client Riot, coque Electron (fonctions, dialogue entre le serveur et Electron, compression de `stats.json`, images), compo par niveau et codes d'équipe (`niveaux.test.mjs`), journal des patchs et choix du patch (`patchs.test.mjs`), images et icônes du client (`images.test.mjs`) | sources | dossiers temporaires |
 
 **Fichiers inutilisés, déplacés le 13/10/2026 dans `data/sauvegarde-phase0/`** : `overlay.ps1` (aucune référence dans le code), `data/analyser-test.mjs` (copie de l'analyseur, pas un test), `data/stats-test.json`, `.maj/` (dossier vide). `data/app.log` reste en place : journal historique, ignoré par git, avec d'anciennes mentions de sites tiers que le code n'utilise plus.
 
@@ -65,7 +65,7 @@ API Riot (europe / euw1)            Client LoL local (lockfile)        Data Drag
   analyser.mjs ◄── valider.mjs · rang au moment de la partie · noms, augments
         │  filtre patch/set/rang · statistiques (Wilson, a priori) · compos · rang
         ▼
-  data/stats.json (format 9) + data/qualite.json
+  data/stats.json (format 14) + data/qualite.json
         │
         ▼
   app.mjs : HTTP 127.0.0.1:3777, orchestrateur, accès téléphone
@@ -168,7 +168,7 @@ Sous Electron, `/api/overlay` accepte toujours `forme` et `bouger` mais ne les t
 8. **Périmètre des données.** Riot API et Data Dragon sont les seules sources. Le code ne contient plus aucun appel à un site tiers (recherche faite le 13/10 dans tout le dépôt). Les fonctions qui en dépendaient ont été retirées (§8).
 9. **Dépendance à Data Dragon.** Noms, icônes et augments viennent de `ddragon.leagueoflegends.com`, au premier lancement ou quand le cache manque. Sans accès, les augments restent vides : `/api/augments` renvoie alors `{ version: null, augments: {} }`, sans erreur.
 10. **Valeurs en dur.** Le lockfile LoL n'est cherché que dans `C:\` et `D:\` (`lcu.mjs`). Le port est 3777 (`TFT_PORT` ne sert qu'aux tests). L'interface et les messages sont uniquement en français.
-11. **Tests.** `npm test` couvre l'hygiène du dépôt (dont l'absence de dépendance d'exécution et la mention légale Riot dans le README et l'interface), `compact()`, les contrôles de `valider.mjs`, l'analyse de bout en bout (import, filtre de rang) sur des données synthétiques, la base SQLite (rangs, file de jobs, budget, migration), la collecte avec un faux client Riot (pagination, reprise, clé refusée, objectif atteint, remplacement d'une partie vue par le client LoL), la partie annoncée en fin de partie (`lcu.mjs`) et la coque Electron : fonctions de `electron/outils.mjs`, et dialogue entre le serveur et Electron (`app.mjs` lancé avec un faux `.env`, un dossier temporaire et un port libre). Les fenêtres elles-mêmes ne sont pas testées automatiquement. Un contrôle navigateur ponctuel (onglets, overlay, routes API) a été fait le 13/10, hors dépôt, sans accès à Data Dragon : aucune erreur JavaScript. Un essai réel d'Electron a été fait le 13/10 sur une copie isolée (port 3790, copie de tes 5 300 parties, importées sans perte) : voir le point 13.
+11. **Tests.** 71 tests au 14/10/2026 (`npm test`, `npm run lint`). `npm test` couvre l'hygiène du dépôt (dont l'absence de dépendance d'exécution et la mention légale Riot dans le README et l'interface), `compact()`, les contrôles de `valider.mjs`, l'analyse de bout en bout (import, filtre de rang) sur des données synthétiques, la base SQLite (rangs, file de jobs, budget, migration), la collecte avec un faux client Riot (pagination, reprise, clé refusée, objectif atteint, remplacement d'une partie vue par le client LoL), la partie annoncée en fin de partie (`lcu.mjs`) et la coque Electron : fonctions de `electron/outils.mjs`, et dialogue entre le serveur et Electron (`app.mjs` lancé avec un faux `.env`, un dossier temporaire et un port libre). Les fenêtres elles-mêmes ne sont pas testées automatiquement. Un contrôle navigateur ponctuel (onglets, overlay, routes API) a été fait le 13/10, hors dépôt, sans accès à Data Dragon : aucune erreur JavaScript. Un essai réel d'Electron a été fait le 13/10 sur une copie isolée (port 3790, copie de tes 5 300 parties, importées sans perte) : voir le point 13.
 12. **Métadonnées du dépôt.** Dépôt git créé en phase 0, avec `package.json`, `LICENSE`, `README.md` et `.env.example`. Remote GitHub configuré (`origin`).
 13. **Electron (phase 3).**
     - **Facultatif.** Sans `node_modules\electron\dist\electron.exe`, les lanceurs utilisent Node et Edge comme avant. Electron 44 ne télécharge plus son exécutable pendant `npm install` : `installer-electron.bat` lance aussi `install-electron` (≈ 160 Mo).
