@@ -81,6 +81,9 @@ test('code d\'équipe : 02, dix emplacements de 3 chiffres hexadécimaux, puis l
 test('code d\'équipe : code réel copié depuis le jeu (Ahri seule, set 18, relevé le 14/10/2026)', () => {
   const r = codeEquipe(['DA_18_Ahri'], { suffixe: 'TFTSet18', codes: { DA_18_Ahri: 1001 } });
   assert.equal(r.code, '023e9000000000000000000000000000TFTSet18');
+  // Ahri, Akali et Alistar, dans cet ordre (second code relevé dans le jeu)
+  const trois = codeEquipe(['DA_18_Ahri', 'DA_18_Akali_AD', 'DA_18_Alistar'], { suffixe: 'TFTSet18', codes: { DA_18_Ahri: 1001, DA_18_Akali_AD: 1002, DA_18_Alistar: 1003 } });
+  assert.equal(trois.code, '023e93ea3eb000000000000000000000TFTSet18');
 });
 
 test('code d\'équipe : champion inconnu ignoré et signalé, rien à coder = pas de code', () => {
