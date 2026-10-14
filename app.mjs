@@ -13,6 +13,7 @@ import { startLcu, lcuState, currentPuuid, PLANNER } from './lcu.mjs';
 import { collect, refreshRank, completerPartie, myPuuidFromEnv } from './collecter.mjs';
 import { analyse } from './analyser.mjs';
 import { codesDesCompos } from './niveaux.mjs';
+import { releverVersion } from './patchs.mjs';
 import { scoutLobby, scoutState, readLobby } from './scout.mjs';
 import { ouvrir, nombreParties, etatFile, rangsCibles, getMeta } from './db.mjs';
 
@@ -440,6 +441,9 @@ server.listen(PORT, MOBILE ? '0.0.0.0' : LOCAL, async () => {
   log(`TFT Stats prêt sur http://${LOCAL}:${PORT}/` + (MOBILE ? ` (téléphone : ${settingsView().mobileUrl || 'réseau local introuvable'})` : '') + (FOND ? ' (en arrière-plan)' : '') + (ELECTRON ? ' (fenêtres Electron)' : ''));
   if (ELECTRON) versElectron({ type: 'pret', url: `http://${LOCAL}:${PORT}/` });
   if (!FOND) openWindow();
+  // Journal des patchs : la date de première vue d'un patch est celle où l'appli le remarque, donc on regarde chaque heure
+  const veille = () => releverVersion().then(v => { if (v) log(`Nouveau patch vu : ${v} (noté dans data/patchs.json)`); });
+  veille(); setInterval(veille, 3600e3);
   startLcu({
     onNew: n => { log(`Client LoL : ${n} partie(s) avec augments récupérée(s)`); quickAnalyse(); },
     onGame: rec => {
@@ -483,7 +487,7 @@ server.listen(PORT, MOBILE ? '0.0.0.0' : LOCAL, async () => {
     const imp = getMeta(ouvrir(), 'import');
     if (imp && Date.now() - Date.parse(imp.date) < 120000) log(`Base SQLite créée : ${imp.ajoutees} parties importées (${imp.doublons} doublons, ${imp.illisibles} lignes illisibles écartées). Ancien fichier gardé : data/${imp.renomme || 'parties.jsonl'}`);
   } catch {}
-  if (fmt < 10 && enStock > 0) {
+  if (fmt < 11 && enStock > 0) {
     state.running = true; await runAnalyse(); state.running = false; state.phase = 'idle'; broadcast();
   }
   const fresh = state.lastRun && Date.now() - new Date(state.lastRun).getTime() < 5 * 60000;

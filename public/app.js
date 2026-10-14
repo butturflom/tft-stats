@@ -107,10 +107,17 @@ function renderStatus() {
 }
 
 // ---- Onglet : Mes compos ----
+// Patch en cours d'après le journal local : Riot ne le donne plus dans les parties
+function patchCourantHtml() {
+  const p = STATS && STATS.patchCourant;
+  if (!p || p.source !== 'journal') return '';
+  const n = ((STATS.patchs || []).find(x => x.patch === p.patch) || {}).parties || 0;
+  return `<span title="Riot ne donne plus le patch des parties. Le journal local note la date où l'appli voit une nouvelle version de Data Dragon, donc seules les parties jouées depuis comptent.">patch en cours <b>${esc(p.patch)}</b>${p.depuis ? ` depuis le ${new Date(p.depuis).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}` : ''} · ${int(n)} partie${n > 1 ? 's' : ''}${STATS.patchSeul ? ' (seul patch analysé)' : ''}</span>`;
+}
 function factsLine() {
   if (!STATS) return '';
   const d = iso => new Date(iso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
-  return `<div class="facts"><span><b>${int(STATS.parties)}</b> parties</span><span><b>${int(STATS.plateaux)}</b> plateaux</span><span>${STATS.patch && STATS.patch !== "?" ? `patch <b>${esc(STATS.patch)}</b>` : `set <b>${esc(STATS.set)}</b>`}</span><span>du ${d(STATS.periode.debut)} au ${d(STATS.periode.fin)}</span><span>contrôle moyenne <b>${f2(STATS.controleMoyenne)}</b></span><span>analyse ${ago(STATS.genere)}</span></div>`;
+  return `<div class="facts"><span><b>${int(STATS.parties)}</b> parties</span><span><b>${int(STATS.plateaux)}</b> plateaux</span><span>${STATS.patch && STATS.patch !== "?" ? `patch <b>${esc(STATS.patch)}</b>` : `set <b>${esc(STATS.set)}</b>`}${patchCourantHtml()}</span><span>du ${d(STATS.periode.debut)} au ${d(STATS.periode.fin)}</span><span>contrôle moyenne <b>${f2(STATS.controleMoyenne)}</b></span><span>analyse ${ago(STATS.genere)}</span></div>`;
 }
 function noData(msg) {
   return `<div class="empty">${msg || 'Pas encore de données.'}<br><br>${STATE && STATE.running ? 'La collecte est en cours : les résultats apparaîtront ici dès la fin de l\'analyse.' : 'Clique sur « Mettre à jour » pour lancer une collecte.'}</div>`;

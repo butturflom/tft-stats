@@ -6,6 +6,7 @@ import { pathToFileURL } from 'node:url';
 import { DATA, loadEnv, loadNames, prettyId } from './lib.mjs';
 import { validerParties, controleMoyenne } from './valider.mjs';
 import { compoParNiveau } from './niveaux.mjs';
+import { lireJournal, patchDe, releverVersion } from './patchs.mjs';
 import { ouvrir, lireParties, rangsDesParties, getMeta, rangsCibles } from './db.mjs';
 
 const MIN_N = 30;          // taille minimale pour lister une compo
@@ -68,12 +69,24 @@ export async function analyse({ tous = false, quiet = false } = {}) {
   if (!recs.length) bloquer('aucune partie valide dans le fichier de parties', qualiteBase);
 
   // On garde le patch le plus récent, et le set le plus fréquent de ce patch
-  let latestT = 0, patch = '?';
-  for (const r of recs) if (r.t > latestT) { latestT = r.t; patch = patchOf(r.v); }
-  if (!tous) recs = recs.filter(r => patchOf(r.v) === patch);
+  // Le patch vient de la partie ; quand Riot ne le donne pas (depuis l'été 2026), du journal local des patchs (patchs.mjs),
+  // pour les parties jouées depuis sa première entrée.
+  await releverVersion();   // journal des patchs : note le changement de version de Data Dragon
+  const journal = lireJournal();
+  for (const r of recs) { const p = patchOf(r.v); r.patchRiot = p !== '?'; r.patch = p !== '?' ? p : patchDe(r.t, journal) || '?'; }
+  let latestT = 0, patch = '?', patchRiot = false;
+  for (const r of recs) if (r.t > latestT) { latestT = r.t; patch = r.patch; patchRiot = r.patchRiot; }
+  if (!tous) recs = recs.filter(r => r.patchRiot === patchRiot && (patchRiot ? r.patch === patch : true));
   const allRecs = recs;
-  // Depuis le set 18, Riot ne donne plus le numéro de patch : on se limite alors aux JOURS derniers jours.
-  if (!tous && patch === "?") { let jours = 14; try { jours = Number(loadEnv().JOURS) || 14; } catch {} recs = recs.filter(r => r.t >= latestT - jours * 864e5); }
+  // Sans numéro de patch donné par Riot : on se limite aux JOURS derniers jours. Avec PATCH_SEUL=1, on ne garde de plus
+  // que le patch en cours d'après le journal (peu de parties les premiers jours d'un patch).
+  let patchSeul = false;
+  if (!tous && !patchRiot) {
+    let jours = 14; let env = {};
+    try { env = loadEnv(); jours = Number(env.JOURS) || 14; } catch {}
+    patchSeul = String(process.env.TFT_PATCH_SEUL ?? env.PATCH_SEUL ?? '') === '1' && patch !== '?';
+    recs = recs.filter(r => r.t >= latestT - jours * 864e5 && (!patchSeul || r.patch === patch));
+  }
   const sets = {};
   for (const r of recs) sets[r.set] = (sets[r.set] || 0) + 1;
   const set = Number(Object.entries(sets).sort((a, b) => b[1] - a[1])[0][0]);
@@ -436,7 +449,16 @@ export async function analyse({ tous = false, quiet = false } = {}) {
   const dates = recs.map(r => r.t);
   const out = {
     genere: new Date().toISOString(),
-    format: 10, patch, set,
+    format: 11,
+    // « patch » : seulement quand il décrit vraiment les parties retenues (Riot le donne, ou PATCH_SEUL=1) ; sinon « ? ».
+    // « patchCourant » : patch en vigueur d'après le journal local (data/patchs.json), « patchs » : parties de chaque patch du journal.
+    patch: patchRiot || patchSeul ? patch : '?', patchSeul, set,
+    patchCourant: (() => {
+      if (patch !== '?') return { patch, source: patchRiot ? 'riot' : 'journal', depuis: (journal.find(e => e.patch === patch) || {}).vu || null };
+      const dernier = journal[journal.length - 1];   // journal commencé après la dernière partie : on connaît le patch, pas encore de partie dedans
+      return dernier ? { patch: dernier.patch, source: 'journal', depuis: dernier.vu } : null;
+    })(),
+    patchs: journal.filter((e, i) => journal.findIndex(x => x.patch === e.patch) === i).map(e => ({ patch: e.patch, depuis: e.vu, parties: recs.filter(r => r.patch === e.patch).length })),
     parties: recs.length, plateaux: total,
     controleMoyenne: r2(boards.reduce((s, b) => s + b.p, 0) / total),
     periode: { debut: new Date(Math.min(...dates)).toISOString(), fin: new Date(Math.max(...dates)).toISOString() },
@@ -452,7 +474,7 @@ export async function analyse({ tous = false, quiet = false } = {}) {
   fs.writeFileSync(path.join(DATA, 'stats.json'), JSON.stringify(out, null, 1));
 
   // Résumé à l'écran
-  say(`\nAnalyse : ${recs.length} parties · ${total} plateaux · patch ${patch} · set ${set}`);
+  say(`\nAnalyse : ${recs.length} parties · ${total} plateaux · patch ${patchRiot || patchSeul ? patch : patch === '?' ? '?' : `? (en cours d'après le journal : ${patch})`} · set ${set}`);
   say(`Qualité : ${qualite.parties.retenues} parties retenues sur ${qualite.parties.lues} lues · ${qualite.parties.invalides} écartées · ${qualite.parties.doublons} doublons · ${horsRang} hors des rangs choisis`);
   say(`Rang au moment de la partie : ${couverture.releve} relevés avant la partie · ${couverture.approx} approchés (relevé après) · ${couverture.seed} d'après la division de collecte · ${couverture.inconnu} inconnus`);
   say(`Contrôle : place moyenne générale = ${out.controleMoyenne} (doit valoir 4.5)`);

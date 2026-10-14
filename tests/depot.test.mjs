@@ -44,7 +44,7 @@ test('.env.example ne contient aucune valeur de clé', () => {
   const cles = lignes.filter(l => /^[A-Z_]+=/.test(l));
   const valeurs = cles.filter(l => l.split('=').slice(1).join('=').trim() !== '');
   // Seules les valeurs par défaut non secrètes sont autorisées.
-  const autorisees = new Set(['RIOT_PLATFORM=euw1', 'RIOT_REGION=europe', 'PARTIES_PAR_COLLECTE=800', 'PARTIES_AUTO=200', 'AUTO_MIN=30', 'AUTO_START=1', 'JOURS=14', 'RECAP_FENETRE=1', 'OVERLAY_AUTO=1', 'OVERLAY_COMPACT=0', 'OVERLAY_FORME=1', 'OVERLAY_ALPHA=170', 'LOBBY_AUTO=1', 'MOBILE=0', 'REQUETES_HEURE=2700']);
+  const autorisees = new Set(['RIOT_PLATFORM=euw1', 'RIOT_REGION=europe', 'PARTIES_PAR_COLLECTE=800', 'PARTIES_AUTO=200', 'AUTO_MIN=30', 'AUTO_START=1', 'JOURS=14', 'RECAP_FENETRE=1', 'OVERLAY_AUTO=1', 'OVERLAY_COMPACT=0', 'OVERLAY_FORME=1', 'OVERLAY_ALPHA=170', 'LOBBY_AUTO=1', 'MOBILE=0', 'REQUETES_HEURE=2700', 'PATCH_SEUL=0']);
   assert.deepEqual(valeurs.filter(l => !autorisees.has(l)), []);
 });
 
