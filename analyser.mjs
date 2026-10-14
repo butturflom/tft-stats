@@ -23,6 +23,18 @@ function wilsonLow(k, n, z = 1.96) {
   const p = k / n, d = 1 + z * z / n;
   return (p + z * z / (2 * n) - z * Math.sqrt(p * (1 - p) / n + z * z / (4 * n * n))) / d;
 }
+// Patchs connus pour ce set : ceux du journal et ceux que Riot donne dans les parties, avec leur nombre de parties
+function listePatchs(recs, journal) {
+  const m = new Map();
+  for (const e of journal) if (!m.has(e.patch)) m.set(e.patch, { patch: e.patch, depuis: e.vu, parties: 0 });
+  for (const r of recs) {
+    if (r.patch === '?') continue;
+    const x = m.get(r.patch) || { patch: r.patch, depuis: r.t, parties: 0 };
+    x.parties++; if (!journal.some(e => e.patch === r.patch)) x.depuis = Math.min(x.depuis, r.t);
+    m.set(r.patch, x);
+  }
+  return [...m.values()].sort((a, b) => a.depuis - b.depuis);
+}
 function summarize(list) {
   const n = list.length;
   let s = 0, s2 = 0, w = 0, t4 = 0;
@@ -75,18 +87,34 @@ export async function analyse({ tous = false, quiet = false } = {}) {
   await releverVersion();   // journal des patchs : note le changement de version de Data Dragon
   const journal = lireJournal();
   for (const r of recs) { const p = patchOf(r.v); r.patchRiot = p !== '?'; r.patch = p !== '?' ? p : patchDe(r.t, journal) || '?'; }
+  const toutes = recs;   // toutes les parties valides, pour la liste des patchs proposés
   let latestT = 0, patch = '?', patchRiot = false;
   for (const r of recs) if (r.t > latestT) { latestT = r.t; patch = r.patch; patchRiot = r.patchRiot; }
-  if (!tous) recs = recs.filter(r => r.patchRiot === patchRiot && (patchRiot ? r.patch === patch : true));
-  const allRecs = recs;
-  // Sans numéro de patch donné par Riot : on se limite aux JOURS derniers jours. Avec PATCH_SEUL=1, on ne garde de plus
-  // que le patch en cours d'après le journal (peu de parties les premiers jours d'un patch).
-  let patchSeul = false;
-  if (!tous && !patchRiot) {
-    let jours = 14; let env = {};
-    try { env = loadEnv(); jours = Number(env.JOURS) || 14; } catch {}
-    patchSeul = String(process.env.TFT_PATCH_SEUL ?? env.PATCH_SEUL ?? '') === '1' && patch !== '?';
-    recs = recs.filter(r => r.t >= latestT - jours * 864e5 && (!patchSeul || r.patch === patch));
+  // Choix du patch (réglage PATCH) : vide = les JOURS derniers jours, « courant » = le patch en cours (d'après le journal),
+  // « 16.20 » = ce patch. PATCH_SEUL=1 reste accepté (= « courant »). Un patch demandé sans aucune partie est ignoré.
+  let env = {};
+  try { env = loadEnv(); } catch {}
+  const choix = (() => {
+    const v = process.env.TFT_PATCH ?? env.PATCH;
+    if (v !== undefined) return String(v).trim();
+    return String(process.env.TFT_PATCH_SEUL ?? env.PATCH_SEUL ?? '') === '1' ? 'courant' : '';
+  })();
+  const explicite = !tous && /^\d+\.\d+$/.test(choix) && toutes.some(r => r.patch === choix);
+  let patchAnalyse = patch, patchSeul = false, allRecs;
+  if (explicite) {
+    recs = recs.filter(r => r.patch === choix);
+    patchAnalyse = choix; patchSeul = true;
+    allRecs = recs;
+  } else {
+    if (!tous) recs = recs.filter(r => r.patchRiot === patchRiot && (patchRiot ? r.patch === patch : true));
+    allRecs = recs;
+    // Sans numéro de patch donné par Riot : on se limite aux JOURS derniers jours, et au patch en cours si le choix est « courant »
+    // (peu de parties les premiers jours d'un patch).
+    if (!tous && !patchRiot) {
+      const jours = Number(env.JOURS) || 14;
+      patchSeul = choix === 'courant' && patch !== '?';
+      recs = recs.filter(r => r.t >= latestT - jours * 864e5 && (!patchSeul || r.patch === patch));
+    }
   }
   const sets = {};
   for (const r of recs) sets[r.set] = (sets[r.set] || 0) + 1;
@@ -470,16 +498,18 @@ export async function analyse({ tous = false, quiet = false } = {}) {
   const dates = recs.map(r => r.t);
   const out = {
     genere: new Date().toISOString(),
-    format: 13,
+    format: 14,
     // « patch » : seulement quand il décrit vraiment les parties retenues (Riot le donne, ou PATCH_SEUL=1) ; sinon « ? ».
     // « patchCourant » : patch en vigueur d'après le journal local (data/patchs.json), « patchs » : parties de chaque patch du journal.
-    patch: patchRiot || patchSeul ? patch : '?', patchSeul, set,
+    patch: patchRiot || patchSeul ? patchAnalyse : '?', patchSeul, set,
+    filtre: { choix, applique: explicite || patchSeul },
     patchCourant: (() => {
       if (patch !== '?') return { patch, source: patchRiot ? 'riot' : 'journal', depuis: (journal.find(e => e.patch === patch) || {}).vu || null };
       const dernier = journal[journal.length - 1];   // journal commencé après la dernière partie : on connaît le patch, pas encore de partie dedans
       return dernier ? { patch: dernier.patch, source: 'journal', depuis: dernier.vu } : null;
     })(),
-    patchs: journal.filter((e, i) => journal.findIndex(x => x.patch === e.patch) === i).map(e => ({ patch: e.patch, depuis: e.vu, parties: recs.filter(r => r.patch === e.patch).length })),
+    patchs: listePatchs(toutes.filter(r => r.set === set), journal),
+    patchsInconnu: toutes.filter(r => r.set === set && r.patch === '?').length,
     parties: recs.length, plateaux: total,
     controleMoyenne: r2(boards.reduce((s, b) => s + b.p, 0) / total),
     periode: { debut: new Date(Math.min(...dates)).toISOString(), fin: new Date(Math.max(...dates)).toISOString() },
@@ -495,7 +525,7 @@ export async function analyse({ tous = false, quiet = false } = {}) {
   fs.writeFileSync(path.join(DATA, 'stats.json'), JSON.stringify(out, null, 1));
 
   // Résumé à l'écran
-  say(`\nAnalyse : ${recs.length} parties · ${total} plateaux · patch ${patchRiot || patchSeul ? patch : patch === '?' ? '?' : `? (en cours d'après le journal : ${patch})`} · set ${set}`);
+  say(`\nAnalyse : ${recs.length} parties · ${total} plateaux · patch ${patchRiot || patchSeul ? patchAnalyse : patch === '?' ? '?' : `? (en cours d'après le journal : ${patch})`} · set ${set}`);
   say(`Qualité : ${qualite.parties.retenues} parties retenues sur ${qualite.parties.lues} lues · ${qualite.parties.invalides} écartées · ${qualite.parties.doublons} doublons · ${horsRang} hors des rangs choisis`);
   say(`Rang au moment de la partie : ${couverture.releve} relevés avant la partie · ${couverture.approx} approchés (relevé après) · ${couverture.seed} d'après la division de collecte · ${couverture.inconnu} inconnus`);
   say(`Contrôle : place moyenne générale = ${out.controleMoyenne} (doit valoir 4.5)`);

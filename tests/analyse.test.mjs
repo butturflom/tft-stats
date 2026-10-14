@@ -23,7 +23,7 @@ function dossier(lignes) {
 }
 function lancer(dir, rangs = '') {
   // TFT_RANGS vide : le filtre de rangs du .env local ne s'applique pas aux données de test
-  return spawnSync(process.execPath, [ANALYSEUR], { cwd: racine, env: { ...process.env, TFT_DATA: dir, TFT_RANGS: rangs }, encoding: 'utf8', timeout: 120000 });
+  return spawnSync(process.execPath, [ANALYSEUR], { cwd: racine, env: { ...process.env, TFT_DATA: dir, TFT_RANGS: rangs, TFT_PATCH: '' }, encoding: 'utf8', timeout: 120000 });
 }
 
 test('analyse : import de parties.jsonl, parties valides retenues, doublon et partie invalide écartés et comptés', () => {
@@ -34,7 +34,7 @@ test('analyse : import de parties.jsonl, parties valides retenues, doublon et pa
   const sortie = lancer(dir);
   assert.equal(sortie.status, 0, sortie.stderr);
   const stats = JSON.parse(fs.readFileSync(path.join(dir, 'stats.json'), 'utf8'));
-  assert.equal(stats.format, 13);
+  assert.equal(stats.format, 14);
   assert.equal(stats.qualite.statut, 'ok');
   // Le doublon est écarté dès l'import dans la base SQLite, puis compté dans le bilan d'import
   assert.equal(stats.qualite.import.lues, 42);

@@ -55,7 +55,7 @@ function analyser(env) {
   const parties = [...Array.from({ length: 40 }, (_, i) => partie(i + 1, t0 + i * 1000)), ...Array.from({ length: 40 }, (_, i) => partie(i + 101, t0 + 3 * 864e5 + i * 1000))];
   fs.writeFileSync(path.join(dir, 'parties.jsonl'), parties.map(p => JSON.stringify(p)).join('\n') + '\n');
   fs.writeFileSync(path.join(dir, 'patchs.json'), JSON.stringify({ journal: [{ patch: '16.20', vu: t0 - 864e5 }, { patch: '16.21', vu: t0 + 2 * 864e5 }] }));
-  const r = spawnSync(process.execPath, [path.join(racine, 'analyser.mjs')], { cwd: racine, env: { ...process.env, TFT_DATA: dir, TFT_RANGS: '', TFT_HORS_LIGNE: '1', ...env }, encoding: 'utf8', timeout: 120000 });
+  const r = spawnSync(process.execPath, [path.join(racine, 'analyser.mjs')], { cwd: racine, env: { ...process.env, TFT_DATA: dir, TFT_RANGS: '', TFT_HORS_LIGNE: '1', TFT_PATCH: '', ...env }, encoding: 'utf8', timeout: 120000 });
   assert.equal(r.status, 0, r.stderr + r.stdout);
   const stats = JSON.parse(fs.readFileSync(path.join(dir, 'stats.json'), 'utf8'));
   fs.rmSync(dir, { recursive: true, force: true });
@@ -63,7 +63,7 @@ function analyser(env) {
 }
 
 test('analyse sans patch donné par Riot : fenêtre de jours, patch en cours d\'après le journal, patch affiché inconnu', () => {
-  const s = analyser({ TFT_PATCH_SEUL: '' });
+  const s = analyser({});
   assert.equal(s.parties, 80);
   assert.equal(s.patch, '?');
   assert.equal(s.patchSeul, false);
@@ -72,9 +72,31 @@ test('analyse sans patch donné par Riot : fenêtre de jours, patch en cours d\'
   assert.deepEqual(s.patchs.map(p => [p.patch, p.parties]), [['16.20', 40], ['16.21', 40]]);
 });
 
-test('analyse avec PATCH_SEUL=1 : seulement les parties du patch en cours', () => {
-  const s = analyser({ TFT_PATCH_SEUL: '1' });
+test('analyse avec le choix « courant » : seulement les parties du patch en cours', () => {
+  const s = analyser({ TFT_PATCH: 'courant' });
   assert.equal(s.parties, 40);
   assert.equal(s.patch, '16.21');
   assert.equal(s.patchSeul, true);
+});
+
+test('PATCH_SEUL=1 reste accepté (ancien réglage)', () => {
+  const s = analyser({ TFT_PATCH: undefined, TFT_PATCH_SEUL: '1' });
+  assert.equal(s.parties, 40);
+  assert.equal(s.filtre.choix, 'courant');
+});
+
+test('analyse d\'un patch choisi : ses parties seules, même anciennes, et la liste des patchs garde tous les décomptes', () => {
+  const s = analyser({ TFT_PATCH: '16.20' });
+  assert.equal(s.parties, 40);
+  assert.equal(s.patch, '16.20');
+  assert.deepEqual(s.filtre, { choix: '16.20', applique: true });
+  assert.deepEqual(s.patchs.map(p => [p.patch, p.parties]), [['16.20', 40], ['16.21', 40]]);
+  assert.equal(s.patchCourant.patch, '16.21');
+});
+
+test('patch demandé sans aucune partie : ignoré, l\'analyse par défaut est faite', () => {
+  const s = analyser({ TFT_PATCH: '99.9' });
+  assert.equal(s.parties, 80);
+  assert.equal(s.patch, '?');
+  assert.deepEqual(s.filtre, { choix: '99.9', applique: false });
 });

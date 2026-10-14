@@ -373,3 +373,8 @@ td.cpl .units{gap:4px}
 td.cpl .u{width:46px;font-size:.58rem}
 td.cpl .u i{width:36px;height:36px}
 td.cpl small{display:block;margin-top:2px}
+
+/* Sélecteur de patch */
+.patchlbl{display:inline-flex;align-items:center;gap:6px;font-size:.84rem;color:var(--muted)}
+.patchlbl select{max-width:100%}
+.patchnote{max-width:260px}

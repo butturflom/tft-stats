@@ -69,6 +69,7 @@ function settingsView() {
     mobileUrl: ip ? `http://${ip}:${PORT}/` : null,
     demarrageWindows: process.platform === 'win32' && fs.existsSync(startupLnk()),
     jours: num(env.JOURS, 14),
+    patch: env.PATCH !== undefined ? String(env.PATCH).trim() : env.PATCH_SEUL === '1' ? 'courant' : '',
   };
 }
 
@@ -363,6 +364,11 @@ const server = http.createServer(async (req, res) => {
         if (!choisis.length) return json(res, 400, { erreur: 'Choisis au moins un rang' });
         ch.RANGS = choisis.length === rangsCibles('TOUS').length ? 'TOUS' : choisis.map(x => x.join(':')).join(',');
       }
+      if (b.patch !== undefined) {
+        const v = String(b.patch).trim();
+        if (v !== '' && v !== 'courant' && !/^\d+\.\d+$/.test(v)) return json(res, 400, { erreur: 'Patch invalide' });
+        ch.PATCH = v;
+      }
       for (const [k, env, min, max] of [['parties', 'PARTIES_PAR_COLLECTE', 50, 5000], ['partiesAuto', 'PARTIES_AUTO', 20, 2000], ['autoMin', 'AUTO_MIN', 0, 600], ['jours', 'JOURS', 1, 30], ['budget', 'REQUETES_HEURE', 0, 100000]]) {
         if (b[k] !== undefined) { const v = Math.round(Number(b[k])); if (isNaN(v) || v < min || v > max) return json(res, 400, { erreur: `Valeur hors limites pour ${k}` }); ch[env] = v; }
       }
@@ -487,7 +493,7 @@ server.listen(PORT, MOBILE ? '0.0.0.0' : LOCAL, async () => {
     const imp = getMeta(ouvrir(), 'import');
     if (imp && Date.now() - Date.parse(imp.date) < 120000) log(`Base SQLite créée : ${imp.ajoutees} parties importées (${imp.doublons} doublons, ${imp.illisibles} lignes illisibles écartées). Ancien fichier gardé : data/${imp.renomme || 'parties.jsonl'}`);
   } catch {}
-  if (fmt < 13 && enStock > 0) {
+  if (fmt < 14 && enStock > 0) {
     state.running = true; await runAnalyse(); state.running = false; state.phase = 'idle'; broadcast();
   }
   const fresh = state.lastRun && Date.now() - new Date(state.lastRun).getTime() < 5 * 60000;

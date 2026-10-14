@@ -76,7 +76,9 @@ Patch
 - Riot ne donne plus le patch des parties. L'appli tient un journal local (data/patchs.json) :
   elle note la date où elle voit un nouveau patch. Il commence le jour de sa création :
   les parties plus anciennes restent « patch inconnu ». L'analyse garde les JOURS derniers
-  jours ; PATCH_SEUL=1 dans .env la limite au patch en cours.
+  jours. La liste « Période » (Mes compos, Classement par niveau) choisit le patch en cours ou
+  un patch du journal. Les patchs sans partie sont grisés. Pour proposer un ancien patch, ajoute
+  sa date de sortie dans data/patchs.json ({ "patch": "16.19", "vu": date en millisecondes }).
 
 Overlay
 - Petite fenêtre au-dessus du jeu, avec ta compo suivie (bouton « Suivre en partie »).

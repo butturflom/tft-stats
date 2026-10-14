@@ -107,6 +107,36 @@ function renderStatus() {
 }
 
 // ---- Onglet : Mes compos ----
+// Sélecteur de patch : « N derniers jours » par défaut, « patch en cours », ou un patch connu (journal local et parties).
+// Le choix est enregistré dans .env (PATCH) puis l'analyse est refaite.
+function patchSelectHtml() {
+  if (!STATS) return '';
+  const ps = (STATS.patchs || []).slice().sort((a, b) => b.depuis - a.depuis);
+  const cur = (STATE && STATE.settings && STATE.settings.patch !== undefined) ? STATE.settings.patch : ((STATS.filtre && STATS.filtre.choix) || '');
+  const courant = STATS.patchCourant && STATS.patchCourant.patch;
+  const n = p => (ps.find(x => x.patch === p) || {}).parties || 0;
+  const parties = k => ` · ${int(k)} partie${k > 1 ? 's' : ''}`;
+  const jours = (STATE && STATE.settings && STATE.settings.jours) || 14;
+  const opts = [['', `${jours} derniers jours`, false]];
+  if (courant) opts.push(['courant', `Patch en cours ${courant}${parties(n(courant))}`, !n(courant)]);
+  for (const p of ps) if (p.patch !== courant) opts.push([p.patch, `Patch ${p.patch}${parties(p.parties)}`, !p.parties]);
+  if (cur && !opts.some(o => o[0] === cur)) opts.push([cur, 'Patch ' + cur, false]);
+  const inconnu = STATS.patchsInconnu ? ` ${int(STATS.patchsInconnu)} parties d'avant le journal n'ont pas de patch connu : seule la période les compte.` : '';
+  const titre = `Riot ne donne plus le patch des parties : les patchs viennent du journal local (data/patchs.json), à partir du jour où l'appli les a vus.${inconnu}`;
+  return `<label class="patchlbl" title="${esc(titre)}">Période <select class="patchsel" aria-label="Patch analysé">${opts.map(([v, l, off]) => `<option value="${esc(v)}" ${cur === v ? 'selected' : ''} ${off && cur !== v ? 'disabled' : ''}>${esc(l)}</option>`).join('')}</select><small class="muted patchnote"></small></label>`;
+}
+document.addEventListener('change', async e => {
+  const sel = e.target.closest && e.target.closest('.patchsel'); if (!sel) return;
+  const note = sel.parentElement.querySelector('.patchnote');
+  sel.disabled = true; if (note) note.textContent = 'Analyse en cours…';
+  try {
+    await api('/api/reglages', { patch: sel.value });
+    const st = await api('/api/analyse', {});
+    if (st && st.running && note) { note.textContent = 'Enregistré : appliqué à la fin de la mise à jour en cours.'; sel.disabled = false; return; }
+  } catch (err) { if (note) note.textContent = err.message; }
+  sel.disabled = false;
+});
+
 // Patch en cours d'après le journal local : Riot ne le donne plus dans les parties
 function patchCourantHtml() {
   const p = STATS && STATS.patchCourant;
@@ -279,6 +309,7 @@ function renderCompos() {
     ${qualiteLine()}
     ${factsLine()}
     <div class="toolbar">
+      ${patchSelectHtml()}
       <input type="search" id="q" placeholder="Chercher une compo ou un champion" value="${esc(UI.q)}" aria-label="Rechercher">
       <select id="minN" aria-label="Taille minimale">${[[30, '30 plateaux et plus'], [100, '100 plateaux et plus'], [300, '300 plateaux et plus']].map(([v, l]) => `<option value="${v}" ${UI.minN == v ? 'selected' : ''}>${l}</option>`).join('')}</select>
       <select id="sort" aria-label="Trier">${[['top1Adj', 'Plus de 1res places'], ['top4', 'Plus de top 4'], ['avgAdj', 'Meilleure place moyenne'], ['n', 'Plus jouées']].map(([v, l]) => `<option value="${v}" ${UI.sort === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
@@ -317,6 +348,7 @@ function renderClassementNiveaux() {
     <div class="nivbar" role="tablist" aria-label="Niveau">${niveaux.map(l => `<button type="button" role="tab" class="niv${l === UI.nl ? ' on' : ''}" aria-selected="${l === UI.nl}" data-nl="${l}">Niveau ${l}</button>`).join('')}</div>
     <div class="facts"><span><b>${int(g.plateaux)}</b> plateaux finis au niveau ${UI.nl}</span><span>place moyenne <b>${f2(g.avg)}</b></span><span>1re place <b>${pct(g.top1)}</b></span><span>top 4 <b>${pct(g.top4, 0)}</b></span></div>
     <div class="toolbar">
+      ${patchSelectHtml()}
       <input type="search" id="nq" placeholder="Chercher une compo" value="${esc(UI.nq)}" aria-label="Rechercher">
       <select id="nmin" aria-label="Taille minimale">${[[1, '1 plateau et plus'], [3, '3 plateaux et plus'], [5, '5 plateaux et plus'], [10, '10 plateaux et plus'], [20, '20 plateaux et plus'], [50, '50 plateaux et plus'], [100, '100 plateaux et plus']].map(([v, l]) => `<option value="${v}" ${UI.nmin == v ? 'selected' : ''}>${l}</option>`).join('')}</select>
       <select id="nsort" aria-label="Trier">${[['avgAdj', 'Meilleure place moyenne'], ['top1Adj', 'Plus de 1res places'], ['top4', 'Plus de top 4'], ['n', 'Plus jouées à ce niveau']].map(([v, l]) => `<option value="${v}" ${UI.nsort === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
