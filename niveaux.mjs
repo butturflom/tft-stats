@@ -58,7 +58,7 @@ export function compoParNiveau(boards, { carryId, plateau = [] } = {}) {
 }
 
 // Code d'équipe du planificateur de TFT : « 02 », dix emplacements de 3 chiffres hexadécimaux (000 = vide),
-// puis « TFT » et le numéro du set. Les codes des champions viennent du client LoL (data/team-planner.json).
+// puis « TFTSet » et le numéro du set (ex. 023e9…000TFTSet18 : Ahri seule). Les codes des champions viennent du client LoL (data/team-planner.json).
 export const EMPLACEMENTS = 10;
 export function codeEquipe(ids, planner) {
   if (!planner || !planner.codes || !planner.suffixe) return null;
@@ -90,7 +90,7 @@ export function codesDesCompos(compos, planner) {
   return out;
 }
 
-// Réponse du client (« tftchampions-teamplanner.json ») → { '18': { suffixe: 'TFT18', codes: { personnage: code } } }
+// Réponse du client (« tftchampions-teamplanner.json ») → { '18': { suffixe: 'TFTSet18', codes: { personnage: code } } }
 export function lirePlanners(brut) {
   const out = {};
   for (const [cle, liste] of Object.entries(brut || {})) {
@@ -98,7 +98,7 @@ export function lirePlanners(brut) {
     if (!m || !Array.isArray(liste)) continue;
     const codes = {};
     for (const x of liste) if (x && typeof x.character_id === 'string' && Number.isInteger(x.team_planner_code)) codes[x.character_id] = x.team_planner_code;
-    if (Object.keys(codes).length) out[m[1]] = { suffixe: `TFT${m[1]}`, codes };
+    if (Object.keys(codes).length) out[m[1]] = { suffixe: `TFTSet${m[1]}`, codes };
   }
   return out;
 }

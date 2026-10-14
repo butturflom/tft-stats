@@ -121,6 +121,7 @@ async function poll(onNew, onGame) {
     if (!puuid) throw new Error('pas de joueur connecté');
     const hist = await lcuGet(c, `/lol-match-history/v1/products/tft/${puuid}/matches?begin=0&count=20`);
     lcuState.connecte = true; lcuState.vu = Date.now();
+    await majPlanner(c).catch(() => {});
     const games = findGames(hist);
     lcuState.parties = games.length;
     if (games[0] && !fs.existsSync(SAMPLE)) { try { fs.writeFileSync(SAMPLE, JSON.stringify(games[0].raw, null, 1)); } catch {} }

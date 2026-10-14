@@ -69,13 +69,18 @@ test('étoiles : lues sur les plateaux voisins, plafonnées quand il n\'y en a p
   assert.equal(u(9, 'U9').etoiles, 3);
 });
 
-const planner = { suffixe: 'TFT18', codes: { U1: 0x402, U2: 1, CARRY: 0xabc } };
+const planner = { suffixe: 'TFTSet18', codes: { U1: 0x402, U2: 1, CARRY: 0xabc } };
 
 test('code d\'équipe : 02, dix emplacements de 3 chiffres hexadécimaux, puis le set', () => {
   const r = codeEquipe(['U1', 'U2', 'CARRY'], planner);
-  assert.equal(r.code, '02' + '402' + '001' + 'abc' + '000'.repeat(7) + 'TFT18');
+  assert.equal(r.code, '02' + '402' + '001' + 'abc' + '000'.repeat(7) + 'TFTSet18');
   assert.deepEqual(r.manquants, []);
-  assert.equal(r.code.length, 2 + 30 + 5);
+  assert.equal(r.code.length, 2 + 30 + 8);
+});
+
+test('code d\'équipe : code réel copié depuis le jeu (Ahri seule, set 18, relevé le 14/10/2026)', () => {
+  const r = codeEquipe(['DA_18_Ahri'], { suffixe: 'TFTSet18', codes: { DA_18_Ahri: 1001 } });
+  assert.equal(r.code, '023e9000000000000000000000000000TFTSet18');
 });
 
 test('code d\'équipe : champion inconnu ignoré et signalé, rien à coder = pas de code', () => {
@@ -88,8 +93,8 @@ test('code d\'équipe : champion inconnu ignoré et signalé, rien à coder = pa
 
 test('code d\'équipe : dix champions au plus', () => {
   const codes = Object.fromEntries(Array.from({ length: 12 }, (_, i) => ['C' + i, i + 1]));
-  const r = codeEquipe(Object.keys(codes), { suffixe: 'TFT18', codes });
-  assert.equal(r.code.length, 2 + 30 + 5);
+  const r = codeEquipe(Object.keys(codes), { suffixe: 'TFTSet18', codes });
+  assert.equal(r.code.length, 2 + 30 + 8);
   assert.equal(r.tronque, 2);
 });
 
@@ -105,7 +110,7 @@ test('réponse du client : codes par set, entrées invalides ignorées', () => {
     TFTSet18: [{ character_id: 'DA_18_Ornn', team_planner_code: 1026 }, { character_id: 'X' }, null, { character_id: 'Y', team_planner_code: 'z' }],
     Autre: [{ character_id: 'Z', team_planner_code: 9 }],
   };
-  assert.deepEqual(lirePlanners(brut), { 17: { suffixe: 'TFT17', codes: { A: 3 } }, 18: { suffixe: 'TFT18', codes: { DA_18_Ornn: 1026 } } });
+  assert.deepEqual(lirePlanners(brut), { 17: { suffixe: 'TFTSet17', codes: { A: 3 } }, 18: { suffixe: 'TFTSet18', codes: { DA_18_Ornn: 1026 } } });
   assert.deepEqual(lirePlanners(null), {});
   assert.deepEqual(lirePlanners({ TFTSet18: [] }), {});
 });
