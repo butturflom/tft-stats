@@ -5,11 +5,12 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { DATA, loadEnv, loadNames, prettyId } from './lib.mjs';
 import { validerParties, controleMoyenne } from './valider.mjs';
-import { compoParNiveau } from './niveaux.mjs';
+import { compoParNiveau, NIVEAUX } from './niveaux.mjs';
 import { lireJournal, patchDe, releverVersion } from './patchs.mjs';
 import { ouvrir, lireParties, rangsDesParties, getMeta, rangsCibles } from './db.mjs';
 
 const MIN_N = 30;          // taille minimale pour lister une compo
+const MIN_NIVEAU = 5;       // plateaux minimum pour garder une compo à un niveau donné (le classement par niveau a son propre seuil)
 const K_AVG = 40;          // poids du « retour à la moyenne » sur la place moyenne
 const PRIOR = [5, 35];     // a priori sur la 1re place : 12,5 % avec un poids de 40 plateaux
 const COST = { 0: 1, 1: 2, 2: 3, 4: 4, 6: 5 };
@@ -206,6 +207,26 @@ export async function analyse({ tous = false, quiet = false } = {}) {
     });
   }
   comps.sort((a, b) => b.top1Adj - a.top1Adj);
+
+  // Classement par niveau : chaque compo, sur les seuls plateaux qui ont fini à ce niveau. Le niveau de fin dépend de la survie
+  // (niveau 6 = éliminé tôt), donc on compare les compos entre elles à niveau égal, avec un retour à la moyenne DU NIVEAU.
+  const niveauxGlobal = {};
+  for (const L of NIVEAUX) {
+    const l = boards.filter(b => b.lvl === L);
+    if (!l.length) continue;
+    niveauxGlobal[L] = { plateaux: l.length, avg: r2(l.reduce((t, b) => t + b.p, 0) / l.length), top1: r3(l.filter(b => b.p === 1).length / l.length), top4: r3(l.filter(b => b.p <= 4).length / l.length) };
+  }
+  for (const c of comps) {
+    c.parNiveau = {};
+    for (const L of NIVEAUX) {
+      const g = niveauxGlobal[L], l = (groups.get(c.cle) || []).filter(b => b.lvl === L);
+      if (!g || l.length < MIN_NIVEAU) continue;
+      const sum = l.reduce((t, b) => t + b.p, 0), w = l.filter(b => b.p === 1).length, n = l.length;
+      const sd = Math.sqrt(Math.max(0, l.reduce((t, b) => t + b.p * b.p, 0) / n - (sum / n) ** 2));
+      const avgAdj = (sum + K_AVG * g.avg) / (n + K_AVG);
+      c.parNiveau[L] = { n, avg: r2(sum / n), ci: r2(1.96 * sd / Math.sqrt(n)), top1: r3(w / n), top4: r3(l.filter(b => b.p <= 4).length / n), avgAdj: r2(avgAdj), top1Adj: r3((w + K_AVG * g.top1) / (n + K_AVG)), ecart: r2(avgAdj - g.avg) };
+    }
+  }
 
   // Bascules : compos qui partagent le plus d'unités du noyau
   const core = new Map(comps.map(c => [c.cle, new Set(c.noyau.filter(u => u.freq >= 0.5).map(u => u.id))]));
@@ -449,7 +470,7 @@ export async function analyse({ tous = false, quiet = false } = {}) {
   const dates = recs.map(r => r.t);
   const out = {
     genere: new Date().toISOString(),
-    format: 11,
+    format: 12,
     // « patch » : seulement quand il décrit vraiment les parties retenues (Riot le donne, ou PATCH_SEUL=1) ; sinon « ? ».
     // « patchCourant » : patch en vigueur d'après le journal local (data/patchs.json), « patchs » : parties de chaque patch du journal.
     patch: patchRiot || patchSeul ? patch : '?', patchSeul, set,
@@ -466,7 +487,7 @@ export async function analyse({ tous = false, quiet = false } = {}) {
     sansCarry: r3(boards.filter(b => !b.carry).length / total),
     ddragon: names.version || null,
     contestationGlobale,
-    compos: comps, traits, unites, moi,
+    compos: comps, niveauxGlobal, traits, unites, moi,
     unitsIndex, itemsIndex, rang,
     augmentsLobby: { plateaux: withA(boards).length, liste: augLobby },
     qualite,

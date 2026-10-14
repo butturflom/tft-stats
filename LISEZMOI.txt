@@ -41,6 +41,9 @@ Onglets
                    contestation, bascules et duels. « Construire la compo par niveau » :
                    la compo du niveau 4 au niveau 10, et un bouton pour copier son code
                    d'équipe (à coller dans le planificateur d'équipe de TFT).
+- Classement par niveau : les compos classées niveau par niveau (4 à 10), sur les plateaux
+                   qui ont fini à ce niveau. À niveau égal, la comparaison est juste ;
+                   « Écart » = de combien la compo fait mieux (-) ou moins bien (+) que la moyenne.
 - Lobby          : au début de chaque partie, ce que jouent les 7 autres joueurs
                    et les carries contestés. Il faut une clé personnelle Riot : la clé
                    de développement n'a pas accès à l'API spectateur (l'overlay le dit).

@@ -25,7 +25,7 @@ const rangsChoisis = r => { const s = String(r || '').trim().toUpperCase(); retu
 
 let STATE = null, STATS = null, ICONS = {}, statsVer = null, TAB = 'compos';
 let AUG = { version: null, augments: {} }, augVer = null, EDITING = false;
-const UI = { aq: '', q: '', minN: 100, sort: 'top1Adj', tq: '', star: 'all', uq: '' };
+const UI = { nl: 9, nsort: 'avgAdj', nmin: 20, nq: '', aq: '', q: '', minN: 100, sort: 'top1Adj', tq: '', star: 'all', uq: '' };
 try { const t = localStorage.getItem('tft-tab'); if (t && !['objets', 'sites'].includes(t)) TAB = t; } catch {}
 
 // ---- Icônes ----
@@ -208,6 +208,7 @@ document.addEventListener('click', async e => {
   dire(ok ? `✓ Copié : ${x.code}` : `Copie impossible, sélectionne le code : ${x.code}`);
 });
 
+let OUVRIR = null;   // compo dont la section par niveau doit s'ouvrir au prochain affichage
 function compCard(c, i) {
   const badges = [];
   if (c.n < 100) badges.push('<span class="badge b-mid">Peu de parties</span>');
@@ -230,7 +231,7 @@ function compCard(c, i) {
         <div class="items" title="Objets du carry">${items.map(itemIcon).join('')}</div></div>
     </div>
     ${c.plateau && c.plateau.length ? `<details class="more"><summary>Plateau et objets</summary>${boardHtml(c.plateau)}</details>` : ''}
-    ${c.niveaux && c.niveaux.length ? `<details class="more"${STATE && STATE.suivie && STATE.suivie.cle === c.cle ? ' open' : ''}><summary>Construire la compo par niveau (4 à 10)</summary><div class="nivwrap">${niveauxHtml(c, false)}</div></details>` : ''}
+    ${c.niveaux && c.niveaux.length ? `<details class="more"${(STATE && STATE.suivie && STATE.suivie.cle === c.cle) || OUVRIR === c.cle ? ' open' : ''}><summary>Construire la compo par niveau (4 à 10)</summary><div class="nivwrap">${niveauxHtml(c, false)}</div></details>` : ''}
     <details class="more"><summary>Synergies, contestation et bascules</summary>
       <div class="grid2">
         <div class="block"><h4>Noyau de la compo</h4>
@@ -283,10 +284,48 @@ function renderCompos() {
       <select id="sort" aria-label="Trier">${[['top1Adj', 'Plus de 1res places'], ['top4', 'Plus de top 4'], ['avgAdj', 'Meilleure place moyenne'], ['n', 'Plus jouées']].map(([v, l]) => `<option value="${v}" ${UI.sort === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
     </div>
     <div class="list">${list.length ? list.map(compCard).join('') : '<div class="empty">Aucune compo ne correspond. Baisse la taille minimale ou attends plus de parties.</div>'}</div>`;
+  OUVRIR = null;
   $('#q').oninput = e => { UI.q = e.target.value; const pos = e.target.selectionStart; renderCompos(); const n = $('#q'); n.focus(); n.setSelectionRange(pos, pos); };
   $('#minN').onchange = e => { UI.minN = Number(e.target.value); renderCompos(); };
   $('#sort').onchange = e => { UI.sort = e.target.value; renderCompos(); };
 }
+
+// ---- Onglet : Classement par niveau ----
+// Compos classées sur les plateaux qui ont fini à un niveau donné : à niveau égal, la comparaison entre compos est juste.
+const NIV_TRI = { avgAdj: [c => c.avgAdj, 1], top1Adj: [c => c.top1Adj, -1], top4: [c => c.top4, -1], n: [c => c.n, -1] };
+function renderClassementNiveaux() {
+  const el = $('#tab-niveaux');
+  if (!STATS) { el.innerHTML = `<h2>Classement par niveau</h2>${noData()}`; return; }
+  const glob = STATS.niveauxGlobal || {};
+  const niveaux = Object.keys(glob).map(Number).sort((a, b) => a - b);
+  if (!niveaux.length) { el.innerHTML = `<h2>Classement par niveau</h2><div class="empty">Pas encore de données par niveau : relance l'analyse dans Réglages.</div>`; return; }
+  if (!glob[UI.nl]) UI.nl = niveaux[niveaux.length - 1];
+  const g = glob[UI.nl], q = norm(UI.nq), [cle, sens] = NIV_TRI[UI.nsort] || NIV_TRI.avgAdj;
+  const lignes = STATS.compos.filter(c => c.parNiveau && c.parNiveau[UI.nl] && c.parNiveau[UI.nl].n >= UI.nmin && (!q || norm(c.nom).includes(q)))
+    .map(c => ({ c, s: c.parNiveau[UI.nl] })).sort((a, b) => sens * (cle(a.s) - cle(b.s)) || b.s.n - a.s.n);
+  const ecart = x => `<span class="${x < -0.05 ? 'good' : x > 0.05 ? 'bad' : ''}">${x > 0 ? '+' : x < 0 ? '−' : ''}${f2(Math.abs(x))}</span>`;
+  el.innerHTML = `<h2>Classement par niveau</h2>
+    <p class="lead">Chaque compo est jugée sur les seuls plateaux qui ont fini <b>au niveau choisi</b>. Le niveau de fin dépend de la survie (un joueur éliminé tôt est au niveau 6), donc les chiffres ne se comparent qu'<b>entre compos du même niveau</b> : la colonne « Écart » dit de combien la compo fait mieux (−) ou moins bien (+) que la moyenne des plateaux de ce niveau.</p>
+    <div class="nivbar" role="tablist" aria-label="Niveau">${niveaux.map(l => `<button type="button" role="tab" class="niv${l === UI.nl ? ' on' : ''}" aria-selected="${l === UI.nl}" data-nl="${l}">Niveau ${l}</button>`).join('')}</div>
+    <div class="facts"><span><b>${int(g.plateaux)}</b> plateaux finis au niveau ${UI.nl}</span><span>place moyenne <b>${f2(g.avg)}</b></span><span>1re place <b>${pct(g.top1)}</b></span><span>top 4 <b>${pct(g.top4, 0)}</b></span></div>
+    <div class="toolbar">
+      <input type="search" id="nq" placeholder="Chercher une compo" value="${esc(UI.nq)}" aria-label="Rechercher">
+      <select id="nmin" aria-label="Taille minimale">${[[10, '10 plateaux et plus'], [20, '20 plateaux et plus'], [50, '50 plateaux et plus'], [100, '100 plateaux et plus']].map(([v, l]) => `<option value="${v}" ${UI.nmin == v ? 'selected' : ''}>${l}</option>`).join('')}</select>
+      <select id="nsort" aria-label="Trier">${[['avgAdj', 'Meilleure place moyenne'], ['top1Adj', 'Plus de 1res places'], ['top4', 'Plus de top 4'], ['n', 'Plus jouées à ce niveau']].map(([v, l]) => `<option value="${v}" ${UI.nsort === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
+    </div>
+    <div class="tablewrap"><table><thead><tr><th class="n">#</th><th>Compo</th><th class="n">Plateaux</th><th class="n">Part du niveau</th><th class="n">1re place</th><th class="n">Top 4</th><th class="n">Place moy.</th><th class="n" title="Place moyenne corrigée (retour à la moyenne du niveau) moins la moyenne du niveau">Écart</th><th></th></tr></thead>
+    <tbody>${lignes.length ? lignes.map(({ c, s }, i) => `<tr><td class="n">${i + 1}</td><td><span class="mini k${COST[c.carry] || 0}">${c.carryImg ? `<i>${unitPic(c.carry, c.carryImg)}</i>` : ''}${esc(c.nom)}</span></td><td class="n">${int(s.n)}</td><td class="n">${pct(s.n / g.plateaux)}</td><td class="n">${pct(s.top1Adj)}</td><td class="n">${pct(s.top4, 0)}</td><td class="n">${f2(s.avg)} <small class="muted">±${f2(s.ci)}</small></td><td class="n">${ecart(s.ecart)}</td><td><button type="button" class="ghost mini-btn" data-voir="${esc(c.cle)}" title="Ouvre la compo, à ce niveau">Voir la compo</button></td></tr>`).join('') : `<tr><td colspan="9"><div class="empty">Aucune compo n'a assez de plateaux à ce niveau. Baisse la taille minimale.</div></td></tr>`}</tbody></table></div>`;
+  el.querySelectorAll('[data-nl]').forEach(b => b.onclick = () => { UI.nl = Number(b.dataset.nl); renderClassementNiveaux(); });
+  $('#nq').oninput = e => { UI.nq = e.target.value; const pos = e.target.selectionStart; renderClassementNiveaux(); const n = $('#nq'); n.focus(); n.setSelectionRange(pos, pos); };
+  $('#nmin').onchange = e => { UI.nmin = Number(e.target.value); renderClassementNiveaux(); };
+  $('#nsort').onchange = e => { UI.nsort = e.target.value; renderClassementNiveaux(); };
+}
+// « Voir la compo » : l'onglet Mes compos filtré sur cette compo, section par niveau ouverte au niveau choisi
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-voir]'); if (!b) return;
+  const c = STATS && STATS.compos.find(x => x.cle === b.dataset.voir); if (!c) return;
+  NIV[c.cle] = UI.nl; UI.q = c.nom; UI.minN = 30; OUVRIR = c.cle; go('compos');
+});
 
 // ---- Onglet : Synergies ----
 function renderSynergies() {
@@ -857,7 +896,7 @@ function render() {
   document.querySelectorAll('main > section').forEach(s => { s.hidden = s.id !== 'tab-' + TAB; });
   try {
     if (OV) return renderOverlay();
-    ({ compos: renderCompos, lobby: renderLobby, synergies: renderSynergies, augments: renderAugments, moi: renderMoi, reglages: renderReglages })[TAB]();
+    ({ compos: renderCompos, niveaux: renderClassementNiveaux, lobby: renderLobby, synergies: renderSynergies, augments: renderAugments, moi: renderMoi, reglages: renderReglages })[TAB]();
   } catch (e) {
     console.error(e);
     $('#tab-' + TAB).innerHTML = `<div class="empty">Affichage impossible pour l'instant (${esc(e.message)}). Les données se mettent à jour : clique sur « Relancer l'analyse » dans Réglages, ou attends la fin de la collecte.</div>`;

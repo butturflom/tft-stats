@@ -34,7 +34,7 @@ test('analyse : import de parties.jsonl, parties valides retenues, doublon et pa
   const sortie = lancer(dir);
   assert.equal(sortie.status, 0, sortie.stderr);
   const stats = JSON.parse(fs.readFileSync(path.join(dir, 'stats.json'), 'utf8'));
-  assert.equal(stats.format, 11);
+  assert.equal(stats.format, 12);
   assert.equal(stats.qualite.statut, 'ok');
   // Le doublon est écarté dès l'import dans la base SQLite, puis compté dans le bilan d'import
   assert.equal(stats.qualite.import.lues, 42);
@@ -54,6 +54,12 @@ test('analyse : import de parties.jsonl, parties valides retenues, doublon et pa
   assert.equal(stats.qualite.seuils.minN, 30);
   assert.equal(stats.compos.length, 1);
   assert.equal(stats.compos[0].n, 320);
+  // Classement par niveau : tous les plateaux de test ont fini au niveau 7, donc la compo est à la moyenne du niveau
+  assert.deepEqual(Object.keys(stats.niveauxGlobal), ['7']);
+  assert.equal(stats.niveauxGlobal[7].plateaux, 320);
+  assert.deepEqual(Object.keys(stats.compos[0].parNiveau), ['7']);
+  assert.equal(stats.compos[0].parNiveau[7].n, 320);
+  assert.equal(stats.compos[0].parNiveau[7].ecart, 0);
   assert.ok(fs.existsSync(path.join(dir, 'qualite.json')));
   fs.rmSync(dir, { recursive: true, force: true });
 });
