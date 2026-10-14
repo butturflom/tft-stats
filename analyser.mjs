@@ -3,7 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { DATA, loadEnv, loadNames, prettyId } from './lib.mjs';
+import { DATA, loadEnv, loadNames, prettyId, ecrireAtomique } from './lib.mjs';
 import { validerParties, controleMoyenne } from './valider.mjs';
 import { compoParNiveau, NIVEAUX, wilsonLow, statsGlobalesNiveau, statsParNiveau } from './niveaux.mjs';
 import { lireJournal, patchDe, releverVersion } from './patchs.mjs';
@@ -17,6 +17,22 @@ const COST = { 0: 1, 1: 2, 2: 3, 4: 4, 6: 5 };
 
 const r2 = x => Math.round(x * 100) / 100;
 const r3 = x => Math.round(x * 1000) / 1000;
+// Première et dernière date des parties, en ISO. Une boucle et non Math.min(...dates) : au-delà d'environ 120 000 parties,
+// l'étalement des arguments dépasse la pile (RangeError) et l'analyse ne publierait plus rien.
+export function periodeDe(recs) {
+  let debut = Infinity, fin = -Infinity;
+  for (const r of recs) { if (r.t < debut) debut = r.t; if (r.t > fin) fin = r.t; }
+  return { debut: new Date(debut).toISOString(), fin: new Date(fin).toISOString() };
+}
+// Relevés de rang (data/rang.jsonl) : une ligne illisible (écriture interrompue) est ignorée au lieu de faire perdre tout l'historique
+export function lireRangs(texte) {
+  const pts = [];
+  for (const l of String(texte).split('\n')) {
+    if (!l.trim()) continue;
+    try { const p = JSON.parse(l); if (p && typeof p.tier === 'string' && Number.isFinite(p.lp)) pts.push(p); } catch {}
+  }
+  return pts;
+}
 const patchOf = v => { const m = String(v).match(/(\d+)\.(\d+)/); return m ? `${m[1]}.${m[2]}` : '?'; };
 // Patchs connus pour ce set : ceux du journal et ceux que Riot donne dans les parties, avec leur nombre de parties
 function listePatchs(recs, journal) {
@@ -46,7 +62,7 @@ function summarize(list) {
 
 // Écrit le bilan de qualité (data/qualite.json), y compris quand l'analyse est bloquée.
 function ecrireQualite(q) {
-  try { fs.writeFileSync(path.join(DATA, 'qualite.json'), JSON.stringify(q, null, 1)); } catch {}
+  try { ecrireAtomique(path.join(DATA, 'qualite.json'), JSON.stringify(q, null, 1)); } catch {}
 }
 // Bloque la publication : stats.json précédent conservé, motif gardé dans qualite.json.
 function bloquer(raison, q) {
@@ -447,7 +463,7 @@ export async function analyse({ tous = false, quiet = false } = {}) {
   const absLp = p => { const i = TIERS.indexOf(p.tier); return i >= 0 ? i * 400 + (DIVS[p.div] ?? 0) + p.lp : 2800 + p.lp; };
   let rang = null;
   try {
-    const pts = fs.readFileSync(path.join(DATA, 'rang.jsonl'), 'utf8').trim().split('\n').map(l => JSON.parse(l)).map(p => ({ ...p, abs: absLp(p) }));
+    const pts = lireRangs(fs.readFileSync(path.join(DATA, 'rang.jsonl'), 'utf8')).map(p => ({ ...p, abs: absLp(p) }));
     if (pts.length) {
       const cur = pts[pts.length - 1];
       const i = TIERS.indexOf(cur.tier);
@@ -482,7 +498,6 @@ export async function analyse({ tous = false, quiet = false } = {}) {
   if (!ctrl.ok) bloquer('contrôle de qualité en échec : place moyenne ' + (ctrl.moyenne ?? 'absente') + ', attendu ' + ctrl.attendu, qualite);
   ecrireQualite(qualite);
 
-  const dates = recs.map(r => r.t);
   const out = {
     genere: new Date().toISOString(),
     format: 15,
@@ -499,7 +514,7 @@ export async function analyse({ tous = false, quiet = false } = {}) {
     patchsInconnu: toutes.filter(r => r.set === set && r.patch === '?').length,
     parties: recs.length, plateaux: total,
     controleMoyenne: r2(boards.reduce((s, b) => s + b.p, 0) / total),
-    periode: { debut: new Date(Math.min(...dates)).toISOString(), fin: new Date(Math.max(...dates)).toISOString() },
+    periode: periodeDe(recs),
     rangs: Object.entries(recs.reduce((o, r) => { const k = r.rg || r.seed || 'inconnu'; o[k] = (o[k] || 0) + 1; return o; }, {})).map(([rang, n]) => ({ rang, n })).sort((a, b) => b.n - a.n),
     sansCarry: r3(boards.filter(b => !b.carry).length / total),
     ddragon: names.version || null,
@@ -509,7 +524,7 @@ export async function analyse({ tous = false, quiet = false } = {}) {
     augmentsLobby: { plateaux: withA(boards).length, liste: augLobby },
     qualite,
   };
-  fs.writeFileSync(path.join(DATA, 'stats.json'), JSON.stringify(out, null, 1));
+  ecrireAtomique(path.join(DATA, 'stats.json'), JSON.stringify(out, null, 1));
 
   // Résumé à l'écran
   say(`\nAnalyse : ${recs.length} parties · ${total} plateaux · patch ${patchRiot || patchSeul ? patchAnalyse : patch === '?' ? '?' : `? (en cours d'après le journal : ${patch})`} · set ${set}`);

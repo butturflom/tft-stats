@@ -36,14 +36,18 @@ export async function fetchRank(riot, puuid) {
   try { ajouterRang(ouvrir(), puuid, point); } catch {}
   return point;
 }
-let cachedPuuid = null;
+// Ton identifiant de joueur, gardé en mémoire avec le Riot ID qui l'a donné : changer de Riot ID dans les réglages
+// (ou le vider) est pris en compte tout de suite, sans relancer l'application.
+let cachedPuuid = null;   // { riotId, puuid }
 export async function myPuuidFromEnv(riot, env) {
-  if (cachedPuuid) return cachedPuuid;
-  if (!env.RIOT_ID || !env.RIOT_ID.includes('#')) return null;
-  const [name, tag] = env.RIOT_ID.split('#');
+  const riotId = String(env.RIOT_ID || '').trim();
+  if (!riotId.includes('#')) return null;
+  if (cachedPuuid && cachedPuuid.riotId === riotId) return cachedPuuid.puuid;
+  const [name, tag] = riotId.split('#');
   const acc = await riot.regionGet(`/riot/account/v1/accounts/by-riot-id/${encodeURIComponent(name.trim())}/${encodeURIComponent(tag.trim())}`);
-  cachedPuuid = acc && acc.puuid || null;
-  return cachedPuuid;
+  const puuid = acc && acc.puuid || null;
+  cachedPuuid = puuid ? { riotId, puuid } : null;
+  return puuid;
 }
 // Pour l'application : relire le rang (après une partie)
 export async function refreshRank() {
@@ -73,7 +77,7 @@ const pidAlive = pid => { try { process.kill(pid, 0); return true; } catch (e) {
 // Version compacte d'une partie : on ne garde que ce qui sert aux stats, sans identifiant de joueur.
 export function compact(m, seedRank, myPuuid) {
   const i = m && m.info;
-  if (!i || (i.queue_id ?? i.queueId) !== RANKED) return null;
+  if (!i || !m.metadata || (i.queue_id ?? i.queueId) !== RANKED) return null;
   const rec = { id: m.metadata.match_id, t: i.game_datetime, v: i.game_version, set: i.tft_set_number, seed: seedRank, b: [] };
   for (const p of i.participants || []) {
     const board = {

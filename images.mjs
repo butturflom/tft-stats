@@ -5,7 +5,7 @@
 // Le navigateur garde ensuite chaque image (Cache-Control) : plus de rechargement ni de ressource externe.
 import fs from 'node:fs';
 import path from 'node:path';
-import { DATA } from './lib.mjs';
+import { DATA, fetchDelai } from './lib.mjs';
 
 export const DOSSIER_ICONES = (dir = DATA) => path.join(dir, 'icones');
 const TYPES = { '.png': 'image/png', '.jpg': 'image/jpeg', '.webp': 'image/webp' };
@@ -43,7 +43,7 @@ async function telecharger(kind, fichier, dir) {
     try {
       const v = versionDe(kind, dir);
       if (!v) return null;
-      const r = await fetch(`https://ddragon.leagueoflegends.com/cdn/${v}/img/${kind}/${encodeURIComponent(fichier)}`);
+      const r = await fetchDelai(`https://ddragon.leagueoflegends.com/cdn/${v}/img/${kind}/${encodeURIComponent(fichier)}`, {}, 20000);
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const corps = Buffer.from(await r.arrayBuffer());
       const dest = path.join(DOSSIER_ICONES(dir), 'dd', kind, fichier);

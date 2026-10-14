@@ -5,7 +5,7 @@
 // Fichier data/patchs.json, que tu peux compléter à la main : { "journal": [{ "patch": "16.20", "vu": 1791968874407 }] }
 import fs from 'node:fs';
 import path from 'node:path';
-import { DATA } from './lib.mjs';
+import { DATA, fetchDelai, ecrireAtomique } from './lib.mjs';
 
 export const numeroPatch = v => { const m = String(v ?? '').match(/(\d+)\.(\d+)/); return m ? `${m[1]}.${m[2]}` : null; };
 const fichier = dir => path.join(dir, 'patchs.json');
@@ -25,7 +25,7 @@ export function noterVersion(version, quand = Date.now(), dir = DATA) {
   const dernier = journal[journal.length - 1];
   if (dernier && dernier.patch === patch) return false;
   journal.push({ patch, version: String(version), vu: quand });
-  fs.writeFileSync(fichier(dir), JSON.stringify({ journal }, null, 1));
+  ecrireAtomique(fichier(dir), JSON.stringify({ journal }, null, 1));
   return true;
 }
 
@@ -40,7 +40,7 @@ export function patchDe(t, journal) {
 export async function releverVersion(dir = DATA) {
   if (process.env.TFT_HORS_LIGNE === '1') return null;   // tests : pas d'accès à Data Dragon
   try {
-    const versions = await (await fetch('https://ddragon.leagueoflegends.com/api/versions.json')).json();
+    const versions = await (await fetchDelai('https://ddragon.leagueoflegends.com/api/versions.json')).json();
     return noterVersion(versions[0], Date.now(), dir) ? versions[0] : null;
   } catch { return null; }
 }

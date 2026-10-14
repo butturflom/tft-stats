@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import https from 'node:https';
 import { execFile } from 'node:child_process';
-import { DATA } from './lib.mjs';
+import { DATA, sansChevauchement } from './lib.mjs';
 import { compact, joueursDe } from './collecter.mjs';
 import { lirePlanners } from './niveaux.mjs';
 import { DOSSIER_ICONES, NOM_ID } from './images.mjs';
@@ -14,7 +14,7 @@ import { ouvrir, ajouterPartie, partieConnue } from './db.mjs';
 const LOBBY = path.join(DATA, 'augments-lobby.json');   // { matchId: { placement: [augments] } }
 const MINE = path.join(DATA, 'mes-augments.json');      // { matchId: { ids: [augments], source } }
 const SAMPLE = path.join(DATA, 'client-exemple.json');
-const SESSION = path.join(DATA, 'client-partie.json');  // une partie en cours, pour vérifier ce que le client fournit  // une partie brute, pour vérifier ce que le client fournit
+const SESSION = path.join(DATA, 'client-partie.json');  // une partie en cours, pour vérifier ce que le client fournit
 export const PLANNER = path.join(DATA, 'team-planner.json');   // codes des champions pour les codes d'équipe : { maj, sets: { '18': { suffixe, codes } } }
 const PLANNER_VALIDITE = 864e5;     // relu une fois par jour : un nouveau set arrive avec un patch
 let plannerEssai = 0;               // dernier essai (réussi ou non), pour ne pas insister chaque minute
@@ -256,8 +256,11 @@ export async function currentPuuid() {
 }
 
 export function startLcu({ onNew = () => {}, onGame = () => {}, onStart = () => {} } = {}) {
-  const tick = () => poll(onNew, onGame).catch(() => {});
+  // Un relevé plus long que son intervalle (client lent à répondre, recherche du processus) ne doit pas se doubler :
+  // deux passages en même temps annonceraient deux fois la même partie
+  const tick = sansChevauchement(() => poll(onNew, onGame).catch(() => {}));
+  const phase = sansChevauchement(() => phaseCheck(onStart).catch(() => {}));
   setTimeout(tick, 5000);
   setInterval(tick, 60000);
-  setInterval(() => phaseCheck(onStart).catch(() => {}), 15000);
+  setInterval(phase, 15000);
 }

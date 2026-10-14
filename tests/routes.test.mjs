@@ -67,11 +67,14 @@ test('/api/overlay : valeurs hors limites refusées, rien écrit dans .env, rien
     { regler: true, hauteur: 300, largeur: 10 }, { regler: true, hauteur: 300, largeur: 5000 },
     { bouger: [1e9, 0] }, { bouger: ['a', 'b'] }, { bouger: [1] }, { bouger: [0, -50000] },
     { forme: { vx: 0, vy: 0, pts: [0, 0, 1] } }, { forme: { vx: 0, vy: 0, pts: [0, 0, 10, 0, 'a', 10] } },
+    { forme: { vx: 0, vy: 0, pts: [0, 0, 10, 0, 10, 10, 5] } },   // nombre impair de coordonnées : le pilote lirait au-delà de la liste
     { forme: { vx: 1e9, vy: 0, pts: [0, 0, 10, 0, 10, 10] } }, { forme: { vx: 0, vy: 0, pts: new Array(100).fill(1) } },
     { forme: { vx: 0, vy: 0, pts: [0, 0, 10, 0, 10, 20000] } }, { forme: { vx: 0, vy: 0 } },
   ]);
   await pause(150);
   assert.deepEqual(messages, []);
+  // Un contour valide (nombre pair de coordonnées) passe : il n'est pas refusé à tort
+  assert.equal((await post('/api/overlay', { forme: { vx: 0, vy: 0, pts: [0, 0, 10, 0, 10, 10, 0, 10] } })).status, 200);
   // Un corps qui n'est pas un objet est traité comme vide, sans erreur
   assert.equal((await post('/api/overlay', null, '[1,2]')).status, 200);
 });

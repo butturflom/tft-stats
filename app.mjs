@@ -297,7 +297,7 @@ async function traiter(req, res) {
       if (b.forme !== undefined) {
         if (readEnv().OVERLAY_FORME === '0' || !b.forme) return json(res, ovPilote.forme(null) ? 200 : 400, { ok: true });
         const vx = int(b.forme.vx, -20000, 20000), vy = int(b.forme.vy, -20000, 20000);
-        const pts = Array.isArray(b.forme.pts) && b.forme.pts.length >= 6 && b.forme.pts.length <= 80 ? b.forme.pts.map(v => int(v, -100, 10000)) : null;
+        const pts = Array.isArray(b.forme.pts) && b.forme.pts.length >= 6 && b.forme.pts.length <= 80 && b.forme.pts.length % 2 === 0 ? b.forme.pts.map(v => int(v, -100, 10000)) : null;
         if (vx === null || vy === null || !pts || pts.includes(null)) return json(res, 400, { erreur: 'Forme invalide' });
         return json(res, ovPilote.forme({ vx, vy, pts }) ? 200 : 400, { ok: true });
       }

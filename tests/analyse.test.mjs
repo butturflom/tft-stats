@@ -91,3 +91,20 @@ test('analyse : filtre par rang (rangs choisis), parties sans rang connu gardée
   assert.equal(stats.qualite.rangs.inconnu, 5);
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+test('analyse : un rang.jsonl dont la dernière ligne est coupée garde son historique ; stats.json écrit d\'un bloc', () => {
+  const dir = dossier(Array.from({ length: 40 }, (_, i) => partie(`EUW1_${i + 1}`)));
+  const lignes = [{ t: 1, tier: 'SILVER', div: 'III', lp: 10, v: 1, d: 0 }, { t: 2, tier: 'SILVER', div: 'II', lp: 66, v: 2, d: 0 }].map(o => JSON.stringify(o));
+  fs.writeFileSync(path.join(dir, 'rang.jsonl'), lignes.join('\n') + '\n{"t":3,"tier":"SILVER","div":"I","lp":');
+  const sortie = lancer(dir);
+  assert.equal(sortie.status, 0, sortie.stderr);
+  const stats = JSON.parse(fs.readFileSync(path.join(dir, 'stats.json'), 'utf8'));
+  assert.ok(stats.rang, 'historique de rang perdu à cause d\'une ligne coupée');
+  assert.equal(stats.rang.actuel.lp, 66);
+  assert.equal(stats.rang.historique.length, 2);
+  assert.equal(stats.rang.prochain, 'SILVER I');
+  assert.equal(stats.periode.debut, new Date(1700000000011).toISOString());   // « EUW1_1 » : les chiffres de l'identifiant (11) s'ajoutent à la date de base
+  assert.equal(stats.periode.fin, new Date(1700000000000 + 140).toISOString());   // « EUW1_40 » : 140
+  assert.deepEqual(fs.readdirSync(dir).filter(n => n.endsWith('.tmp')), [], 'fichier temporaire laissé dans data/');
+  fs.rmSync(dir, { recursive: true, force: true });
+});

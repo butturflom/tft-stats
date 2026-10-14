@@ -65,7 +65,7 @@ No third-party website is used. The dashboard typefaces (Rajdhani, Figtree, JetB
 
 - Collected data and analysis results stay on your computer, in the `data/` folder. That folder and your `.env` file are never committed.
 - Your API key is stored only in `.env`.
-- To place each game at the rank it was played, the local database keeps the Riot player IDs (PUUIDs) of the players in each collected game and their observed ranks. They stay in `data/tft.db`, are never written to the exported matches or to the statistics, and are only used locally.
+- To place each game at the rank it was played, the local database keeps the Riot player IDs (PUUIDs) of the players in each collected game and their observed ranks. They stay in `data/tft.db`, are never written to the exported matches or to the statistics, and are only used locally. A few other local files also hold player IDs and names: `data/client-exemple.json` and `data/client-partie.json` (copies of one game and one lobby as the League client reports them, kept once to check what the client provides) and `data/lobby.json` (names, ranks and recent compositions of the players of your last game, written by the lobby scouting). Nothing leaves your PC and the whole `data/` folder is ignored by git, but do not share it.
 - With Electron, its browser profile (cache, interface preferences such as the theme) is kept in `%APPDATA%\tft-stats`.
 
 ## Limitations

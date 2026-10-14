@@ -10,6 +10,34 @@ fs.mkdirSync(DATA, { recursive: true });
 
 export const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+// fetch avec délai d'attente : sans lui, un serveur qui ne répond plus (réseau coupé à moitié) bloquerait la collecte
+// ou l'analyse pendant plusieurs minutes. Un dépassement lève une erreur comme une panne réseau.
+export const fetchDelai = (url, options = {}, ms = 15000) => fetch(url, { ...options, signal: AbortSignal.timeout(ms) });
+
+// Écrit un fichier d'un bloc : écriture à côté puis renommage, pour qu'un lecteur (le serveur lit stats.json pendant
+// qu'une analyse le réécrit) ne voie jamais un fichier à moitié écrit. Si le renommage est refusé (fichier ouvert
+// ailleurs, sous Windows), on écrit directement.
+export function ecrireAtomique(fichier, texte) {
+  const tmp = `${fichier}.${process.pid}-${Date.now()}.tmp`;
+  try {
+    fs.writeFileSync(tmp, texte);
+    fs.renameSync(tmp, fichier);
+  } catch {
+    try { fs.unlinkSync(tmp); } catch {}
+    fs.writeFileSync(fichier, texte);
+  }
+}
+
+// Fonction qui ne se relance pas tant qu'un appel précédent n'est pas fini (relevés périodiques plus lents que leur intervalle).
+export const sansChevauchement = fn => {
+  let enCours = false;
+  return async (...args) => {
+    if (enCours) return undefined;
+    enCours = true;
+    try { return await fn(...args); } finally { enCours = false; }
+  };
+};
+
 // Fichier .env à côté des scripts (TFT_ENV : autre fichier, pour les tests)
 const envFile = () => process.env.TFT_ENV || path.join(ROOT, '.env');
 
@@ -63,8 +91,12 @@ export class Riot {
   constructor(env) {
     this.key = env.RIOT_API_KEY || '';
     if (!/^RGAPI-[0-9a-f-]{36}$/i.test(this.key)) throw new Error('Clé RIOT_API_KEY absente ou mal formée dans .env');
-    this.platform = env.RIOT_PLATFORM || 'euw1';
-    this.region = env.RIOT_REGION || 'europe';
+    this.platform = String(env.RIOT_PLATFORM || 'euw1').trim().toLowerCase();
+    this.region = String(env.RIOT_REGION || 'europe').trim().toLowerCase();
+    // Ces deux valeurs deviennent le nom d'hôte de chaque requête, qui porte la clé : une valeur comme « site.exemple/x? »
+    // enverrait la clé à un autre serveur. On n'accepte que les plateformes (euw1, na1, kr…) et régions de Riot.
+    if (!/^[a-z]{2,4}\d?$/.test(this.platform)) throw new Error('RIOT_PLATFORM invalide dans .env (attendu : euw1, na1, kr…)');
+    if (!/^(americas|asia|europe|sea)$/.test(this.region)) throw new Error('RIOT_REGION invalide dans .env (attendu : europe, americas, asia ou sea)');
     this.limiter = new Limiter();
     this.count = 0;
   }
@@ -73,7 +105,7 @@ export class Riot {
     this.count++;
     let res;
     try {
-      res = await fetch(`https://${host}.api.riotgames.com${p}`, { headers: { 'X-Riot-Token': this.key } });
+      res = await fetchDelai(`https://${host}.api.riotgames.com${p}`, { headers: { 'X-Riot-Token': this.key } }, 30000);
     } catch (e) {
       if (tries < 3) { await sleep(2000 * (tries + 1)); return this.get(host, p, tries + 1); }
       throw new Error('Pas de connexion à Riot : ' + e.message);
@@ -108,10 +140,10 @@ export const prettyId = id => String(id)
 export async function loadNames() {
   const cache = path.join(DATA, 'noms.json');
   try {
-    const versions = await (await fetch('https://ddragon.leagueoflegends.com/api/versions.json')).json();
+    const versions = await (await fetchDelai('https://ddragon.leagueoflegends.com/api/versions.json')).json();
     const v = versions[0];
     const base = `https://ddragon.leagueoflegends.com/cdn/${v}/data/fr_FR`;
-    const get = f => fetch(`${base}/${f}`).then(r => (r.ok ? r.json() : { data: {} }));
+    const get = f => fetchDelai(`${base}/${f}`).then(r => (r.ok ? r.json() : { data: {} }));
     const [ch, tr, it] = await Promise.all(['tft-champion.json', 'tft-trait.json', 'tft-item.json'].map(get));
     const names = { version: v, units: {}, traits: {}, items: {}, unitImg: {}, traitImg: {}, itemImg: {} };
     const fill = (src, nm, img) => {
@@ -148,9 +180,9 @@ export async function loadAugments() {
   let old = null;
   try { old = JSON.parse(fs.readFileSync(cache, 'utf8')); } catch {}
   try {
-    const v = (await (await fetch('https://ddragon.leagueoflegends.com/api/versions.json')).json())[0];
+    const v = (await (await fetchDelai('https://ddragon.leagueoflegends.com/api/versions.json')).json())[0];
     if (old && old.version === v && Object.keys(old.list || {}).length && Date.now() - (old.recupere || 0) < 24 * 3600e3) return old;
-    const dd = await (await fetch(`https://ddragon.leagueoflegends.com/cdn/${v}/data/fr_FR/tft-augments.json`)).json();
+    const dd = await (await fetchDelai(`https://ddragon.leagueoflegends.com/cdn/${v}/data/fr_FR/tft-augments.json`)).json();
     const all = Object.values(dd.data || {}).filter(a => a.id && a.name);
     const current = all.some(a => /^DA_/.test(a.id)) ? all.filter(a => /^DA_/.test(a.id)) : all;
     const list = {};
