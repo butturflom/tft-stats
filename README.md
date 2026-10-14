@@ -52,13 +52,13 @@ Only two sources are used:
 - **Riot Games API**: ranked matches, players, ranks and the lobby. Each user uses a personal key. Keys are never bundled with the code.
 - **Data Dragon**: Riot's official static data: champion, trait and item names and icons, and augment names and descriptions in French.
 
-No third-party website is used for data. The only request to a third party is the dashboard's typefaces (Rajdhani, Figtree, JetBrains Mono), loaded from Google Fonts by `public/index.html`: Google sees your IP address when the dashboard opens. The app works without them (the browser falls back to system fonts). To remove that request, delete the three `fonts.*` links from `public/index.html` and the two Google hosts from `CSP` in `securite.mjs`.
+No third-party website is used. The dashboard typefaces (Rajdhani, Figtree, JetBrains Mono, all under the SIL Open Font License) are bundled in `public/fonts/`, so opening the dashboard makes no request outside your PC.
 
 ## Security
 
 - The server listens on `127.0.0.1` only, checks the `Host` header (against DNS rebinding) and requires an `X-TFT: 1` header on every `POST`, so a web page you visit cannot change your settings.
 - There is no remote access: the server answers this PC only, so nothing on your network can reach it.
-- Every response carries a `Content-Security-Policy` (`securite.mjs`): scripts only from the app itself (no inline script, no `eval`), so markup injected into a page does not run; connections only to the app; no framing. The only external resources allowed are the Google Fonts stylesheet and font files.
+- Every response carries a `Content-Security-Policy` (`securite.mjs`): scripts only from the app itself (no inline script, no `eval`), so markup injected into a page does not run; connections only to the app; no framing. No external resource is allowed, fonts included.
 - Security-sensitive helpers (served-file path, request body reading, Riot ID and `.env` values, the policy above) live in `securite.mjs` and are covered by `tests/securite.test.mjs`.
 
 ## Data and privacy

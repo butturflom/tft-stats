@@ -1,0 +1,30 @@
+Polices de l'interface de TFT Stats
+===================================
+
+Ces fichiers sont servis par l'application elle-même : le tableau de bord ne fait aucune requête
+vers un autre site pour afficher ses polices.
+
+  Rajdhani        graisses 600 et 700   (titres, onglets, rangs)
+                  Copyright (c) 2014, Indian Type Foundry
+                  Licence : OFL-rajdhani.txt
+                  https://fonts.google.com/specimen/Rajdhani
+
+  Figtree         graisses 400 à 600    (texte)
+                  Copyright 2022 The Figtree Project Authors
+                  Licence : OFL-figtree.txt
+                  https://fonts.google.com/specimen/Figtree
+
+  JetBrains Mono  graisse 500           (chiffres et valeurs)
+                  Copyright 2020 The JetBrains Mono Project Authors
+                  Licence : OFL-jetbrainsmono.txt
+                  https://fonts.google.com/specimen/JetBrains+Mono
+
+Les trois sont publiées sous la SIL Open Font License, version 1.1 : usage, copie et redistribution
+libres, y compris avec une application sous une autre licence (ici l'AGPL-3.0-or-later), à condition
+de garder le texte de la licence et les mentions de copyright, ce que ce dossier fait. Les polices
+ne peuvent pas être vendues seules.
+
+Origine : fichiers .woff2 de Google Fonts, jeux de caractères « latin » et « latin-ext »,
+récupérés une fois le 14/10/2026. fonts.css déclare les polices (@font-face) ; index.html le charge.
+Pour mettre à jour ou changer une police : remplacer le fichier .woff2, adapter fonts.css, garder
+la licence correspondante.

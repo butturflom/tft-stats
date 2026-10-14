@@ -177,7 +177,7 @@ test('serveur : réservé à ce PC (écoute sur 127.0.0.1, nom d\'hôte contrôl
 // ---- Content-Security-Policy ----
 const lirePublic = f => fs.readFileSync(path.join(racine, 'public', f), 'utf8');
 
-test('politique : scripts de l\'appli seulement, ni eval ni ressource externe autre que les polices', () => {
+test('politique : scripts de l\'appli seulement, ni eval ni ressource externe', () => {
   const d = Object.fromEntries(CSP.split('; ').map(x => [x.split(' ')[0], x.split(' ').slice(1)]));
   assert.deepEqual(d['script-src'], ["'self'"]);
   assert.deepEqual(d['default-src'], ["'self'"]);
@@ -187,8 +187,9 @@ test('politique : scripts de l\'appli seulement, ni eval ni ressource externe au
   assert.deepEqual(d['frame-ancestors'], ["'none'"]);
   assert.deepEqual(d['base-uri'], ["'none'"]);
   assert.deepEqual(d['connect-src'], ["'self'"]);
-  const hotes = CSP.match(/https?:\/\/[^\s;]+/g).sort();
-  assert.deepEqual(hotes, ['https://fonts.googleapis.com', 'https://fonts.gstatic.com']);
+  assert.equal(CSP.match(/https?:\/\//), null, 'la politique autorise un site externe');
+  assert.deepEqual(d['font-src'], ["'self'"]);
+  assert.deepEqual(d['style-src'], ["'self'", "'unsafe-inline'"]);
   assert.equal(ENTETES_SECURITE['Content-Security-Policy'], CSP);
 });
 
@@ -203,6 +204,46 @@ test('interface : aucun script ni gestionnaire d\'événement écrit dans le HTM
   assert.ok(!/<[a-z][^>]*\son[a-z]+\s*=/i.test(lirePublic('app.js')), 'gestionnaire en ligne dans les gabarits de app.js');
   assert.ok(!/\b(eval|new Function)\(/.test(lirePublic('app.js')));
   assert.ok(fs.existsSync(path.join(racine, 'public', 'theme.js')));
+});
+
+test('polices : hébergées dans public/fonts, aucune ressource d\'un autre site dans le HTML ni le CSS', () => {
+  // Les URI data: (le favicon) contiennent l'identifiant d'espace de noms du SVG, qui n'est pas une adresse chargée
+  const sansData = t => t.replace(/data:[^"]*/g, 'data:');
+  for (const f of ['index.html', 'style.css', 'fonts/fonts.css']) assert.doesNotMatch(sansData(lirePublic(f)), /(?:https?:)?\/\/[a-z0-9.-]+\.[a-z]{2,}/i, f + ' charge une ressource externe');
+  assert.doesNotMatch(lirePublic('index.html'), /rel="(?:preconnect|dns-prefetch)"/);
+  assert.match(lirePublic('index.html'), /<link rel="stylesheet" href="fonts\/fonts\.css">/);
+  const css = lirePublic('fonts/fonts.css');
+  const fichiers = [...css.matchAll(/url\(([^)]+)\)/g)].map(m => m[1]);
+  assert.ok(fichiers.length >= 6, 'au moins les graisses de chaque police');
+  for (const nom of fichiers) {
+    assert.match(nom, /^[\w-]+\.woff2$/, 'nom de fichier simple : ' + nom);
+    const octets = fs.readFileSync(path.join(racine, 'public', 'fonts', nom));
+    assert.equal(octets.toString('latin1', 0, 4), 'wOF2', nom + ' n\'est pas un fichier woff2');
+    assert.ok(octets.length > 1000 && octets.length < 200000, nom);
+  }
+  // Les familles utilisées par la feuille de style sont toutes déclarées, avec leur licence OFL jointe
+  const declarees = new Set([...css.matchAll(/font-family:\s*'([^']+)'/g)].map(m => m[1]));
+  assert.deepEqual([...declarees].sort(), ['Figtree', 'JetBrains Mono', 'Rajdhani']);
+  const style = lirePublic('style.css');
+  for (const famille of declarees) assert.match(style, new RegExp(famille), famille + ' n\'est pas utilisée par style.css');
+  for (const f of ['OFL-rajdhani.txt', 'OFL-figtree.txt', 'OFL-jetbrainsmono.txt']) {
+    assert.match(lirePublic('fonts/' + f), /SIL OPEN FONT LICENSE Version 1\.1/, f);
+  }
+  assert.ok(fs.existsSync(path.join(racine, 'public', 'fonts', 'LISEZMOI.txt')));
+});
+
+test('serveur : polices servies avec le bon type, sans site externe', async () => {
+  const port = portServeur || await demarrer();
+  const css = await fetch(`http://127.0.0.1:${port}/fonts/fonts.css`);
+  assert.equal(css.status, 200);
+  assert.match(css.headers.get('content-type'), /^text\/css/);
+  const nom = (await css.text()).match(/url\(([^)]+\.woff2)\)/)[1];
+  const police = await fetch(`http://127.0.0.1:${port}/fonts/${nom}`);
+  assert.equal(police.status, 200);
+  assert.equal(police.headers.get('content-type'), 'font/woff2');
+  assert.equal(police.headers.get('x-content-type-options'), 'nosniff');
+  assert.equal(Buffer.from(await police.arrayBuffer()).toString('latin1', 0, 4), 'wOF2');
+  assert.equal((await fetch(`http://127.0.0.1:${port}/fonts/inconnue.woff2`)).status, 404);
 });
 
 test('serveur : la politique et les en-têtes de sécurité accompagnent chaque réponse', async () => {

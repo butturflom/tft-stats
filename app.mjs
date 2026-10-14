@@ -245,7 +245,7 @@ function setStartup(on) {
 }
 
 // ---- Serveur HTTP ----
-const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon' };
+const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.woff2': 'font/woff2', '.txt': 'text/plain; charset=utf-8' };
 let codesCache = { cle: null, corps: null };
 let statsCache = null;   // stats.json en mémoire (brut et compressé), relu quand le fichier change
 const json = (res, code, obj) => { res.writeHead(code, { 'Content-Type': TYPES['.json'], 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
@@ -322,9 +322,7 @@ async function traiter(req, res) {
       if (typeof b.key === 'string' && b.key.trim()) {
         const k = b.key.trim();
         if (!/^RGAPI-[0-9a-f-]{36}$/i.test(k)) return json(res, 400, { erreur: 'La clé doit ressembler à RGAPI-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx' });
-        ch.RIOT_API_KEY = k; state.keyProblem = false; state.error = null;
-        // Nouvelle clé : l'accès à l'API spectateur est à revérifier, le repérage du lobby redevient possible
-        Object.assign(scoutState, { statut: 'idle', erreur: null, spectateur: null });
+        ch.RIOT_API_KEY = k;
       }
       if (typeof b.riotId === 'string') {
         const r = b.riotId.trim();
@@ -352,6 +350,12 @@ async function traiter(req, res) {
       if (ch.OVERLAY_FORME === '0' && ovHelper) ovCmd('region');
       if (typeof b.demarrageWindows === 'boolean' && b.demarrageWindows !== settingsView().demarrageWindows) await setStartup(b.demarrageWindows);
       updateEnv(ch);
+      if (ch.RIOT_API_KEY) {
+        // Nouvelle clé, une fois tout validé : le problème de clé est effacé, l'accès à l'API spectateur est à
+        // revérifier et le repérage du lobby redevient possible
+        state.keyProblem = false; state.error = null;
+        Object.assign(scoutState, { statut: 'idle', erreur: null, spectateur: null });
+      }
       // Electron refait l'overlay ouvert avec ou sans barre de titre
       if (ELECTRON && ch.OVERLAY_FORME) versElectron({ type: 'forme', forme: ch.OVERLAY_FORME !== '0' });
       log('Réglages enregistrés :', Object.keys(ch).filter(k => k !== 'RIOT_API_KEY').join(', ') + (ch.RIOT_API_KEY ? ' + nouvelle clé' : ''));

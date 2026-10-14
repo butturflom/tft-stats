@@ -41,12 +41,13 @@ export const valeurEnv = v => String(v).replace(/[\r\n\u2028\u2029]+/g, ' ');
 
 // Content-Security-Policy de toutes les réponses. Les scripts ne viennent que de l'appli (rien d'écrit dans le HTML,
 // aucun eval) : une balise ou un attribut injecté dans la page ne s'exécute pas. Les attributs style="…" servent à la
-// taille des barres, d'où 'unsafe-inline' pour les styles seulement. Seules ressources externes : les polices Google Fonts.
+// taille des barres, d'où 'unsafe-inline' pour les styles seulement. Aucune ressource externe : les polices
+// sont dans public/fonts/, rien ne se charge depuis un autre site.
 export const CSP = [
   "default-src 'self'",
   "script-src 'self'",
-  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-  "font-src https://fonts.gstatic.com",
+  "style-src 'self' 'unsafe-inline'",
+  "font-src 'self'",
   "img-src 'self' data:",
   "connect-src 'self'",
   "object-src 'none'",
