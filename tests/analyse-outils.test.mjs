@@ -90,7 +90,7 @@ test('script de référence : deux passages du même code sur les mêmes donnée
   }
   assert.ok(!fs.existsSync(path.join(donnees, 'stats.json')), 'stats.json laissé dans la copie de données');
   const stats1 = JSON.parse(fs.readFileSync(path.join(s1, 'defaut.stats.json'), 'utf8'));
-  assert.equal(stats1.format, 16);
+  assert.equal(stats1.format, 17);
   assert.equal(stats1.parties, 40);
   assert.ok(stats1.compos.length > 0 && stats1.moi, 'compos et « moi » présents : les étapes de l\'analyse ont toutes tourné');
   const cmp = node(COMPARER, [s1, s2]);

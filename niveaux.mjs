@@ -20,6 +20,12 @@ export function plafondsCout(L) {
   return out;
 }
 const MIN_PART = 0.05;                             // part des plateaux qui jouent un champion pour qu'on puisse le proposer
+// Choix des niveaux 4 à 7 selon les synergies (ameliorer) : poids d'un palier de trait atteint, et coût d'un champion à vendre
+// au niveau suivant, comparés à l'importance d'un champion (de 0 à 1, carry jusqu'à 2)
+const POIDS_TRAIT = 0.3;                           // palier d'un trait absent du niveau 8
+const POIDS_TRAIT_FINAL = 0.6;                     // palier d'un trait actif au niveau 8
+const COUT_VENTE = 0.6;
+const MAX_CANDIDATS = 25;                          // champions de la compo essayés en remplacement (les plus importants)
 const MIN_ETOILES = 3;                             // plateaux voisins nécessaires pour lire les étoiles d'une unité
 
 // Étoiles qu'on peut raisonnablement avoir à ce niveau, selon le coût du champion
@@ -37,9 +43,11 @@ const ajouterHisto = (a, b) => { for (let e = 0; e < b.length; e++) a[e] += b[e]
 
 // boards : plateaux de la compo ({ lvl, p, units: [{ id, star, items, cost }] }).
 // plateau : unités porteuses d'objets de la compo ({ id, objets }), pour les objets affichés.
-// Résultat : [{ niveau, source: 'observe' | 'estime', n, unites: [{ id, etoiles, objets }], ajoute, retire, plafonds? }]
+// traits : traits des champions et paliers des traits lus dans le client LoL (lireTraitsClient), ou null.
+// Résultat : [{ niveau, source: 'observe' | 'estime', n, unites: [{ id, etoiles, objets }], ajoute, retire, plafonds?, synergies? }]
 // ajoute et retire : champions à acheter et à vendre en arrivant à ce niveau depuis le précédent (vides au niveau 4).
-export function compoParNiveau(boards, { carryId, plateau = [] } = {}) {
+// synergies (si traits) : traits actifs du plateau, [{ id, n, palier, prochain }] (palier = nombre de paliers atteints).
+export function compoParNiveau(boards, { carryId, plateau = [], traits = null } = {}) {
   const cout = new Map();
   for (const b of boards) for (const u of b.units) cout.set(u.id, u.cost);
   const coutDe = id => Math.min(Math.max(cout.get(id) || 1, 1), 5);
@@ -86,10 +94,55 @@ export function compoParNiveau(boards, { carryId, plateau = [] } = {}) {
   // Dernier recours, si la compo n'a pas assez de champions bon marché : les moins chers, plafonds dépassés
   const completer = (ids, L) => ids.length >= L ? ids
     : ids.concat(vus.filter(id => !ids.includes(id)).sort((a, b) => coutDe(a) - coutDe(b) || (imp.get(b) || 0) - (imp.get(a) || 0)).slice(0, L - ids.length));
+  const respecte = (ids, L) => choisir(ids, L).length === ids.length;
+
+  // Synergies : traits actifs d'un plateau, hors traits propres à un seul champion (premier palier à 1)
+  const tc = traits && traits.champions && traits.paliers ? traits : null;
+  function synergies(ids) {
+    if (!tc) return [];
+    const nb = new Map();
+    for (const id of ids) for (const t of tc.champions[id] || []) nb.set(t, (nb.get(t) || 0) + 1);
+    const out = [];
+    for (const [id, n] of nb) {
+      const p = tc.paliers[id] || [];
+      const palier = p.filter(x => x <= n).length;
+      if (palier && p[0] > 1) out.push({ id, n, palier, prochain: p[palier] || null });
+    }
+    return out.sort((a, b) => b.palier - a.palier || b.n - a.n);
+  }
+  // Niveaux 4 à 7 : échange un champion contre un autre de la compo tant que le plateau y gagne. Valeur d'un plateau : importance
+  // de ses champions, plus chaque palier de trait atteint (davantage pour les traits actifs au niveau 8, vers lesquels la compo
+  // se dirige), moins chaque champion qu'il faudra vendre au niveau suivant. Plafonds de coût toujours respectés.
+  function ameliorer(ids, L, dessus, finaux) {
+    if (!tc || !respecte(ids, L)) return ids;
+    const candidats = [...new Set([...dessus, ...parImportance(vus).slice(0, MAX_CANDIDATS)])];
+    const valeur = S => {
+      let v = 0;
+      for (const id of S) v += Math.min(imp.get(id) || 0, 2) - (dessus.includes(id) ? 0 : COUT_VENTE);
+      for (const s of synergies(S)) v += s.palier * (finaux.has(s.id) ? POIDS_TRAIT_FINAL : POIDS_TRAIT);
+      return v;
+    };
+    let S = ids, v = valeur(S);
+    for (let k = 0; k < 20; k++) {
+      let mieux = null, vMieux = v + 1e-9;
+      for (const sortant of S) for (const entrant of candidats) {
+        if (S.includes(entrant)) continue;
+        const essai = S.map(id => id === sortant ? entrant : id);
+        if (!respecte(essai, L)) continue;
+        const ve = valeur(essai);
+        if (ve > vMieux) { vMieux = ve; mieux = essai; }
+      }
+      if (!mieux) break;
+      S = mieux; v = vMieux;
+    }
+    return S;
+  }
 
   // Du niveau 10 au niveau 4 : chaque niveau sous NIVEAU_OBSERVE part du plateau du niveau au-dessus
   const choix = new Map();
+  let finaux = new Set();   // traits actifs au niveau NIVEAU_OBSERVE
   for (const L of [...NIVEAUX].reverse()) {
+    if (L === NIVEAU_OBSERVE - 1) finaux = new Set(synergies(choix.get(NIVEAU_OBSERVE).ids).map(s => s.id));
     const exact = boards.filter(b => b.lvl === L);
     if (L >= NIVEAU_OBSERVE && exact.length >= MIN_OBSERVE) {
       // Observé : champions les plus joués des plateaux finis à ce niveau (top 4 s'il y en a assez) ; à égalité, les plus chers
@@ -105,7 +158,7 @@ export function compoParNiveau(boards, { carryId, plateau = [] } = {}) {
       const dessus = choix.get(L + 1).ids;
       let ids = choisir(parImportance(dessus), L);
       if (ids.length < L) ids = choisir(ids.concat(parImportance(vus.filter(id => !dessus.includes(id)))), L);
-      choix.set(L, { ids: completer(ids, L), source: 'estime', n: exact.length });
+      choix.set(L, { ids: ameliorer(completer(ids, L), L, dessus, finaux), source: 'estime', n: exact.length });
     }
   }
 
@@ -132,6 +185,7 @@ export function compoParNiveau(boards, { carryId, plateau = [] } = {}) {
     const retire = avant ? avant.filter(id => !ids.includes(id)) : [];
     const x = { niveau: L, source, n, unites, ajoute, retire };
     if (L < NIVEAU_OBSERVE) x.plafonds = plafondsCout(L);   // plafonds de coût appliqués, pour l'expliquer dans l'interface
+    if (tc) x.synergies = synergies(ids);
     out.push(x);
     avant = ids;
   }
@@ -184,6 +238,25 @@ export function lirePlanners(brut) {
       if (typeof x.squareIconPath === 'string' && x.squareIconPath.startsWith('/lol-game-data/assets/')) icones[x.character_id] = x.squareIconPath;
     }
     if (Object.keys(codes).length) out[m[1]] = { suffixe: `TFTSet${m[1]}`, codes, icones };
+  }
+  return out;
+}
+
+// Réponses du client (« tftchampions.json » et « tfttraits.json », tous les sets) → traits de chaque champion et paliers de
+// chaque trait : { champions: { personnage: [traits] }, paliers: { trait: [unités nécessaires à chaque palier, croissant] } }.
+// tftchampions.json plutôt que le planificateur : il a aussi les variantes (Lux de chaque trait).
+export function lireTraitsClient(champions, traits) {
+  const out = { champions: {}, paliers: {} };
+  for (const x of Array.isArray(champions) ? champions : []) {
+    const r = x && x.character_record;
+    if (!r || typeof r.character_id !== 'string' || !Array.isArray(r.traits)) continue;
+    const ids = r.traits.map(t => t && t.id).filter(id => typeof id === 'string' && id);
+    if (ids.length) out.champions[r.character_id] = ids;
+  }
+  for (const t of Array.isArray(traits) ? traits : []) {
+    if (!t || typeof t.trait_id !== 'string' || !Array.isArray(t.conditional_trait_sets)) continue;
+    const p = [...new Set(t.conditional_trait_sets.map(s => s && s.min_units).filter(n => Number.isInteger(n) && n > 0))].sort((a, b) => a - b);
+    if (p.length) out.paliers[t.trait_id] = p;
   }
   return out;
 }

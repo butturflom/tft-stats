@@ -70,8 +70,8 @@ test('le code n\'écrit plus de copie brute du client LoL (identifiants et noms 
   const sources = suivis().filter(f => /\.(mjs|js)$/.test(f) && !f.includes(`${path.sep}tests${path.sep}`));
   const fautifs = sources.filter(f => /client-exemple|client-partie/.test(lire(f)));
   assert.deepEqual(fautifs.map(f => path.relative(racine, f)), []);
-  // lcu.mjs n'écrit que ses fichiers utiles : codes d'équipe, icônes, augments
-  // (icônes : path.join(dossier, …), les trois autres : une constante de fichier)
+  // lcu.mjs n'écrit que ses fichiers utiles : codes d'équipe, traits des champions, icônes, augments
+  // (icônes : path.join(dossier, …), les quatre autres : une constante de fichier)
   const ecrits = [...lire(path.join(racine, 'lcu.mjs')).matchAll(/writeFileSync\(\s*([\w.]+)/g)].map(m => m[1]).sort();
-  assert.deepEqual(ecrits, ['LOBBY', 'MINE', 'PLANNER', 'path.join']);
+  assert.deepEqual(ecrits, ['LOBBY', 'MINE', 'PLANNER', 'TRAITS_CLIENT', 'path.join']);
 });

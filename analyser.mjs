@@ -46,7 +46,7 @@ export async function analyse({ tous = false, quiet = false } = {}) {
   const mine = mineAll;
   const moi = analyserMoi({ mine, boards, comps, U, T, I });
   const { augLobby, plateauxAvecAugments } = statsAugments({ boards, mine, moi });
-  const { unitsIndex, itemsIndex } = plateauxEtIndex({ comps, groups, boards, names, I, UI, II });
+  const { unitsIndex, itemsIndex } = plateauxEtIndex({ comps, groups, boards, names, T, I, UI, II, traitsClient: readJ('traits-client.json', null) });
   const rang = rangClasse();
   const contestationGlobale = contestationParCarry(boards, byMatch);
 
@@ -55,7 +55,7 @@ export async function analyse({ tous = false, quiet = false } = {}) {
 
   const out = {
     genere: new Date().toISOString(),
-    format: 16,
+    format: 17,
     // « patch » : seulement quand il décrit vraiment les parties retenues (Riot le donne, ou PATCH_SEUL=1) ; sinon « ? ».
     // « patchCourant » : patch en vigueur d'après le journal local (data/patchs.json), « patchs » : parties de chaque patch du journal.
     patch: patchRiot || patchSeul ? patchAnalyse : '?', patchSeul, set,

@@ -7,7 +7,7 @@ import https from 'node:https';
 import { execFile } from 'node:child_process';
 import { DATA, sansChevauchement } from './lib.mjs';
 import { compact, joueursDe } from './collecter.mjs';
-import { lirePlanners } from './niveaux.mjs';
+import { lirePlanners, lireTraitsClient } from './niveaux.mjs';
 import { DOSSIER_ICONES, NOM_ID } from './images.mjs';
 import { ouvrir, ajouterPartie, partieConnue } from './db.mjs';
 
@@ -16,6 +16,8 @@ const MINE = path.join(DATA, 'mes-augments.json');      // { matchId: { ids: [au
 export const PLANNER = path.join(DATA, 'team-planner.json');   // codes des champions pour les codes d'équipe : { maj, sets: { '18': { suffixe, codes } } }
 const PLANNER_VALIDITE = 864e5;     // relu une fois par jour : un nouveau set arrive avec un patch
 let plannerEssai = 0;               // dernier essai (réussi ou non), pour ne pas insister chaque minute
+export const TRAITS_CLIENT = path.join(DATA, 'traits-client.json');   // traits des champions et paliers : { maj, champions, paliers }
+let traitsEssai = 0;
 const LOCKFILES = ['C:\\Riot Games\\League of Legends\\lockfile', 'D:\\Riot Games\\League of Legends\\lockfile'];
 
 export const lcuState = { lobby: 0, connecte: false, vu: null, parties: 0, avecAugments: 0, note: 'Pas encore vérifié' };
@@ -121,6 +123,21 @@ export async function majPlanner(c, lire = lcuGet) {
   return true;
 }
 
+// Traits de chaque champion et paliers de chaque trait, lus dans les données de jeu du client (une fois par jour). L'analyse
+// s'en sert pour choisir les champions des petits niveaux selon leurs synergies ; sans eux, elle s'en passe.
+export async function majTraits(c, lire = lcuGet) {
+  const actuel = readJ(TRAITS_CLIENT, null);
+  if (actuel && actuel.champions && Date.now() - actuel.maj < PLANNER_VALIDITE) return false;
+  if (Date.now() - traitsEssai < 3600e3) return false;
+  traitsEssai = Date.now();
+  const champions = await lire(c, '/lol-game-data/assets/v1/tftchampions.json');
+  const traits = await lire(c, '/lol-game-data/assets/v1/tfttraits.json');
+  const t = lireTraitsClient(champions, traits);
+  if (!Object.keys(t.champions).length || !Object.keys(t.paliers).length) return false;
+  fs.writeFileSync(TRAITS_CLIENT, JSON.stringify({ maj: Date.now(), ...t }));
+  return true;
+}
+
 // Icônes carrées des champions (128×128, ≈ 8 Ko), lues dans le client et gardées dans data/icones/ : l'interface les sert
 // à la place des grandes images de Data Dragon (≈ 500 Ko). Seules les icônes manquantes sont téléchargées.
 export async function majIcones(c, lire = lcuGetBin, dir = DATA) {
@@ -172,6 +189,7 @@ async function poll(onNew, onGame) {
     const hist = await lcuGet(c, `/lol-match-history/v1/products/tft/${puuid}/matches?begin=0&count=20`);
     lcuState.connecte = true; lcuState.vu = Date.now();
     await majPlanner(c).catch(() => {});
+    await majTraits(c).catch(() => {});
     await majIcones(c).catch(() => {});
     const games = findGames(hist);
     lcuState.parties = games.length;

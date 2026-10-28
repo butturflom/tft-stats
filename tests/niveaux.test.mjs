@@ -4,11 +4,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { compoParNiveau, codeEquipe, lirePlanners, codesDesCompos, NIVEAUX, MIN_OBSERVE, NIVEAU_OBSERVE, plafondsCout, wilsonLow, statsGlobalesNiveau, statsParNiveau } from '../niveaux.mjs';
+import { compoParNiveau, codeEquipe, lirePlanners, lireTraitsClient, codesDesCompos, NIVEAUX, MIN_OBSERVE, NIVEAU_OBSERVE, plafondsCout, wilsonLow, statsGlobalesNiveau, statsParNiveau } from '../niveaux.mjs';
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tft-niv-'));
 process.env.TFT_DATA = dir;
-const { majPlanner, PLANNER } = await import('../lcu.mjs');
+const { majPlanner, PLANNER, majTraits, TRAITS_CLIENT } = await import('../lcu.mjs');
 after(() => fs.rmSync(dir, { recursive: true, force: true }));
 
 // Compo de 10 champions : U1 à U4 coûtent 1, U5 et U6 coûtent 2, U7 et U8 coûtent 3, U9 coûte 4, CARRY coûte 5
@@ -192,6 +192,49 @@ test('client LoL : codes lus une fois, gardés, puis plus redemandés', async ()
   assert.equal(d.sets[18].codes.DA_18_Ornn, 1026);
   assert.equal(await majPlanner({}, lire), false);
   assert.equal(appels, 1);
+});
+
+// Réponses du client : tftchampions.json (dont une entrée sans character_record) et tfttraits.json
+const CHAMPIONS_CLIENT = [
+  { name: 'DA_18_Ahri', character_record: { character_id: 'DA_18_Ahri', traits: [{ id: 'DA_18_Blossom' }, { id: 'DA_18_Spellweaver' }] } },
+  { name: 'TFT_Item' }, { character_record: { character_id: 'DA_Vide', traits: [] } },
+];
+const TRAITS_CLIENT_BRUT = [
+  { trait_id: 'DA_18_Brawler', conditional_trait_sets: [{ min_units: 4 }, { min_units: 2 }, { min_units: 6 }, { min_units: 2 }] },
+  { trait_id: 'DA_Sans', conditional_trait_sets: [] }, { display_name: 'sans id' },
+];
+
+test('traits du client : traits de chaque champion, paliers triés et sans doublon, entrées invalides ignorées', () => {
+  const t = lireTraitsClient(CHAMPIONS_CLIENT, TRAITS_CLIENT_BRUT);
+  assert.deepEqual(t.champions, { DA_18_Ahri: ['DA_18_Blossom', 'DA_18_Spellweaver'] });
+  assert.deepEqual(t.paliers, { DA_18_Brawler: [2, 4, 6] });
+  assert.deepEqual(lireTraitsClient(null, { pas: 'une liste' }), { champions: {}, paliers: {} });
+});
+
+test('client LoL : traits lus une fois, gardés, puis plus redemandés', async () => {
+  const chemins = [];
+  const lire = async (c, p) => { chemins.push(p); return p.endsWith('tftchampions.json') ? CHAMPIONS_CLIENT : TRAITS_CLIENT_BRUT; };
+  assert.equal(await majTraits({}, lire), true);
+  assert.deepEqual(chemins, ['/lol-game-data/assets/v1/tftchampions.json', '/lol-game-data/assets/v1/tfttraits.json']);
+  const d = JSON.parse(fs.readFileSync(TRAITS_CLIENT, 'utf8'));
+  assert.deepEqual(d.paliers.DA_18_Brawler, [2, 4, 6]);
+  assert.equal(await majTraits({}, lire), false);
+  assert.equal(chemins.length, 2);
+});
+
+test('synergies : à importance égale, les petits niveaux gardent les champions qui activent un trait de la compo finale', () => {
+  // Six champions à 1 pièce joués partout ; K5 et K6 forment le trait PAIRE (palier 2), actif au niveau 8
+  const K = [['K1', 1], ['K2', 1], ['K3', 1], ['K4', 1], ['K5', 1], ['K6', 1], ['K7', 2], ['K8', 2]];
+  const b = Array.from({ length: MIN_OBSERVE }, () => ({ lvl: 8, p: 1, units: K.map(([id, cost]) => ({ id, star: 2, items: [], cost })) }));
+  const traits = { champions: { K1: ['SEUL'], K5: ['PAIRE'], K6: ['PAIRE'] }, paliers: { PAIRE: [2, 4], SEUL: [1] } };
+  const sans = compoParNiveau(b, {}), avec = compoParNiveau(b, { traits });
+  assert.ok(!ids(sans, 4).includes('K5'), ids(sans, 4).join(','));
+  assert.equal(sans[0].synergies, undefined);
+  for (const L of [4, 5, 6, 7]) assert.ok(ids(avec, L).includes('K5') && ids(avec, L).includes('K6'), `niveau ${L} : ${ids(avec, L).join(',')}`);
+  // Traits propres à un seul champion (premier palier à 1) jamais comptés
+  assert.deepEqual(avec.find(x => x.niveau === 4).synergies, [{ id: 'PAIRE', n: 2, palier: 1, prochain: 4 }]);
+  // Toujours au plus un champion vendu par passage entre les niveaux 4 et 7, plafonds respectés
+  for (const L of [5, 6, 7]) assert.ok(avec.find(x => x.niveau === L).retire.length <= 1, `niveau ${L}`);
 });
 
 // ---- Classement par niveau : statistiques ----

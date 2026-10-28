@@ -16,7 +16,7 @@ export function statsAugments({ boards, mine, moi }) {
 }
 
 // Plateau type et composition par niveau de chaque compo (ajoutés aux compos), puis index des champions et des objets
-export function plateauxEtIndex({ comps, groups, boards, names, I, UI, II }) {
+export function plateauxEtIndex({ comps, groups, boards, names, T = id => id, I, UI, II, traitsClient = null }) {
   const isComponent = it => /Component_/.test(it);
   // Objets et rôle de chaque champion sur l'ensemble des top 4
   const unitGlobal = new Map();
@@ -54,7 +54,9 @@ export function plateauxEtIndex({ comps, groups, boards, names, I, UI, II }) {
     }
     c.plateau = [...units].sort((a, b) => b.porteur - a.porteur).map(u => ({ id: u.id, etoiles: u.etoiles, objets: u.objets }));
     // Composition à chaque niveau du joueur (4 à 10), pour monter la compo pas à pas
-    c.niveaux = compoParNiveau(list, { carryId: c.carryId, plateau: c.plateau });
+    // Traits du client LoL (data/traits-client.json) : choix des petits niveaux selon les synergies, et traits actifs nommés
+    c.niveaux = compoParNiveau(list, { carryId: c.carryId, plateau: c.plateau, traits: traitsClient });
+    for (const n of c.niveaux) for (const s of n.synergies || []) s.nom = T(s.id);
   }
   // Index des champions et des objets (pour composer un plateau depuis n'importe quelle liste)
   const unitsIndex = {};
