@@ -34,8 +34,6 @@ let AUG = { version: null, augments: {} }, augVer = null, EDITING = false;
 const UI = { cnt: 20, ncnt: 40, nl: 9, nsort: 'top4Low', nmin: 10, nq: '', aq: '', q: '', minN: 100, sort: 'top1Adj', tq: '', star: 'all', uq: '' };
 // Onglet mémorisé : seulement s'il existe encore (un ancien onglet retiré afficherait une erreur)
 const ONGLETS = ['compos', 'niveaux', 'lobby', 'synergies', 'augments', 'moi', 'reglages'];
-// Édition publique (EDITION=publique, voir edition.mjs) : sans repérage du lobby ni statistiques d'augments
-const PUBLIQUE = () => !!(STATE && STATE.settings && STATE.settings.editionPublique);
 try { const t = localStorage.getItem('tft-tab'); if (ONGLETS.includes(t)) TAB = t; } catch {}
 
 // ---- Icônes ----
@@ -642,12 +640,10 @@ function renderAugments() {
       <div class="stat"><b>${nCat}</b><span>augments du set traduits</span></div>
       <div class="stat"><b style="font-size:1rem;line-height:1.3">${esc(clientTxt)}</b><span>client LoL</span></div>
     </div>
-    ${PUBLIQUE() ? `<h3 class="section">Statistiques d'augments</h3><p class="lead">Retirées de l'édition publique : les règles de Riot pour TFT et celles d'Overwolf interdisent d'afficher les places moyennes et les taux de victoire des augments. Tu peux toujours noter tes augments dans « Mes parties ».</p>` : `
     <h3 class="section">Tes augments</h3>
     ${m && m.augments && m.augments.length ? table(m.augments) + (m.avecAugments < 15 ? '<p class="lead" style="margin-top:8px">Encore peu de parties : ces chiffres deviennent parlants à partir d\'une quinzaine de parties renseignées.</p>' : '')
       : `<div class="empty">Aucun augment renseigné pour l'instant. Après chaque partie, ajoute tes 3 augments dans l'onglet « Mes parties » (10 secondes).<br><br><button type="button" class="primary" data-go="moi">Ouvrir Mes parties</button></div>`}
     ${lob && lob.liste && lob.liste.length ? `<h3 class="section">Dans tes lobbys</h3><p class="lead">Augments de tous les joueurs de tes parties, quand le client LoL les fournit.</p>${table(lob.liste.slice(0, 40))}` : ''}
-    `}
     <h3 class="section">Tous les augments</h3>
     <div class="toolbar"><input type="search" id="aq" placeholder="Chercher un augment (nom ou effet : « emblème », « PO », « relance »…)" value="${esc(UI.aq)}"></div>
     <div id="tierlist">${tierListHtml()}</div>`;
@@ -817,7 +813,7 @@ function ovPanel(s) {
     return `<div class="ovgrid"><div class="ovleft"><div class="ovboard">${boardHtml(s.plateau)}</div></div>
       <div class="ovright">
         ${ovRow('Carries', holders.slice(0, 3).map(c => { const u = uIdx(c.id) || { nom: c.id }; return `<div class="ovline"><span class="ovmini k${costOf(c.id)}" title="${esc(u.nom)}">${unitPic(u.nom, u.img)}</span><span class="ovarrow">›</span>${c.objets.map(itemPic).join('')}</div>`; }).join(''))}
-        ${PUBLIQUE() ? '' : ovRow('Lobby', !LOBBY ? `<span class="ovtxt muted">${scoutBloque() ? 'Repérage indisponible avec ta clé' : 'Pas encore repéré'}</span>` : contest ? `<span class="ovtxt warn">⚠ ${esc(contest.nom)} joué par ${contest.joueurs.length}</span>` : '<span class="ovtxt good">✓ Carry libre</span>')}
+        ${ovRow('Lobby', !LOBBY ? `<span class="ovtxt muted">${scoutBloque() ? 'Repérage indisponible avec ta clé' : 'Pas encore repéré'}</span>` : contest ? `<span class="ovtxt warn">⚠ ${esc(contest.nom)} joué par ${contest.joueurs.length}</span>` : '<span class="ovtxt good">✓ Carry libre</span>')}
       </div></div>`;
   }
   if (OVT === 'niveaux') return s.stats && s.stats.niveaux ? niveauxHtml(s.stats, true) : '<p class="muted">Les niveaux ne sont pas encore calculés : relance l\'analyse.</p>';
@@ -844,7 +840,6 @@ function ovHead(tierHtml, kicker, nom, btns) {
   </div>`;
 }
 function renderOverlay() {
-  if (PUBLIQUE() && OVT === 'lobby') OVT = 'apercu';
   const el = $('#tab-overlay');
   if (!STATS) { el.innerHTML = `<div class="hud"><div class="hud-in">${ovHead('', 'TFT // HUD', 'En attente des données', '')}<p class="ovtxt muted" style="margin-top:8px">L'analyse n'est pas encore prête.</p></div></div>`; return ovWire(el); }
   const s = suivie();
@@ -876,7 +871,7 @@ function renderOverlay() {
   el.innerHTML = `<div class="hud${OVC ? ' hud-mini' : ''}"><div class="hud-in">
     ${ovHead(`<span class="ovtier t-${esc(tier.replace('+', 'p'))}" title="Tier ${esc(tier)}"><b>${esc(tier)}</b></span>`, 'Compo suivie', s.nom, btns)}
     <div class="ovstrip ovteam">${strip}</div>
-    ${OVC ? '' : `<div class="ovtabs">${OV_TABS.filter(([k]) => !(PUBLIQUE() && k === 'lobby')).map(([k, l]) => `<button type="button" data-ovt="${k}" class="${OVT === k ? 'on' : ''}"><span>${l}</span></button>`).join('')}</div>
+    ${OVC ? '' : `<div class="ovtabs">${OV_TABS.map(([k, l]) => `<button type="button" data-ovt="${k}" class="${OVT === k ? 'on' : ''}"><span>${l}</span></button>`).join('')}</div>
     <div class="ovbody">${ovPanel(s)}</div>`}
   </div></div>`;
   el.querySelectorAll('[data-ovt]').forEach(b => b.onclick = () => { OVT = b.dataset.ovt; try { localStorage.setItem('tft-ov-tab', OVT); } catch {} render(); });
@@ -1024,7 +1019,7 @@ function renderReglages() {
       <h3 class="section" style="margin-top:6px">En partie</h3>
       <label class="row"><input type="checkbox" id="overlayAuto" ${s.overlayAuto ? 'checked' : ''}> Ouvrir l'overlay au début de chaque partie</label>
       <label class="row"><input type="checkbox" id="overlayForme" ${s.overlayForme !== false ? 'checked' : ''}> Overlay détouré (sans barre de titre, déplaçable par son en-tête)</label>
-      ${s.editionPublique ? '' : `<label class="row"><input type="checkbox" id="lobbyAuto" ${s.lobbyAuto ? 'checked' : ''}> Repérer le lobby au début de chaque partie</label>`}
+      <label class="row"><input type="checkbox" id="lobbyAuto" ${s.lobbyAuto ? 'checked' : ''}> Repérer le lobby au début de chaque partie</label>
       <div class="row"><button type="button" class="ghost" id="ovNow">Ouvrir l'overlay maintenant</button><small class="muted">Petite fenêtre toujours visible par-dessus le jeu. Mets TFT en mode « Fenêtré sans bordure » (Options → Vidéo) : en plein écran, Windows la cache.</small></div>
       <h3 class="section" style="margin-top:6px">Démarrage</h3>
       <label class="row"><input type="checkbox" id="demarrageWindows" ${s.demarrageWindows ? 'checked' : ''}> Lancer TFT Stats en arrière-plan au démarrage de Windows</label>
@@ -1033,7 +1028,6 @@ function renderReglages() {
     <div class="section"><h3>Application</h3>
       <p class="lead">L'application tourne en arrière-plan tant qu'elle est ouverte. Fermer la fenêtre ne l'arrête pas : utilise « Quitter » pour la fermer complètement.</p>
       <div class="row"><button type="button" class="ghost" id="reanalyse">Relancer l'analyse</button><button type="button" class="ghost" id="quit">Quitter l'application</button></div>
-      ${s.editionPublique ? '<p class="muted">Édition publique : sans repérage du lobby ni statistiques d\'augments (règles de Riot pour TFT).</p>' : ''}
       <p class="muted">${STATE.sauvegarde ? `Sauvegarde de tes parties : ${esc(STATE.sauvegarde.fichier)}, ${esc(ago(new Date(STATE.sauvegarde.t).toISOString()))} (${int(STATE.sauvegarde.nombre)} gardée${STATE.sauvegarde.nombre > 1 ? 's' : ''} dans data/sauvegardes).` : 'Sauvegarde de tes parties : la première est faite quelques minutes après le lancement, puis une par jour (7 gardées, dans data/sauvegardes).'}</p>
     </div>`;
   $('#form').onsubmit = async e => {
@@ -1057,9 +1051,6 @@ function renderReglages() {
 
 // ---- Navigation et chargement ----
 function render() {
-  const lob = document.querySelector('.tabs [data-tab="lobby"]');
-  if (lob) lob.hidden = PUBLIQUE();
-  if (PUBLIQUE() && TAB === 'lobby') TAB = 'compos';
   document.querySelectorAll('.tabs button').forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab === TAB)));
   document.querySelectorAll('main > section').forEach(s => { s.hidden = s.id !== 'tab-' + TAB; });
   try {

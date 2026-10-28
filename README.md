@@ -84,10 +84,6 @@ TFT Stats isn't endorsed by Riot Games and doesn't reflect the views or opinions
 
 Licensed under the GNU Affero General Public License, version 3 or (at your option) any later version (AGPL-3.0-or-later). See [`LICENSE`](LICENSE).
 
-## Public edition
-
-Setting `EDITION=publique` in `.env` turns on the public edition, meant for a release to other players: it removes lobby scouting and every augment statistic, which Riot's [TFT developer policy](https://developer.riotgames.com/docs/tft) and Overwolf do not allow. A public release also needs a Riot production key kept on a server, never in the app. Steps and drafts (product description for Riot, privacy policy, terms of use): [`docs/publication/`](docs/publication/LISEZMOI.md).
-
 ## Documentation
 
 - [`ARCHITECTURE.md`](ARCHITECTURE.md): modules, data formats, decisions and roadmap (in French).

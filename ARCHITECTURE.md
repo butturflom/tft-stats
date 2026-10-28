@@ -26,7 +26,6 @@ Application locale pour Windows. Elle collecte les parties classées TFT (EUW) v
 | `electron/main.mjs` | Coque Electron (phase 3) : lance `app.mjs` dans un processus enfant, ouvre le tableau de bord et l'overlay quand le serveur le demande, une seule instance, reprise d'une instance lancée sans Electron | messages du serveur (IPC) | `data/app.log` |
 | `electron/outils.mjs` | Fonctions de la coque sans Electron : icône (PNG de l'hexagone), position de l'overlay sur un écran visible, tri des liens, transparence | | |
 | `lib.mjs` | Lecture de `.env`, `Limiter`, client `Riot` (plateforme et région contrôlées, délai d'attente), noms et augments (Data Dragon), `fetchDelai`, `ecrireAtomique`, `sansChevauchement` | `.env`, caches | `data/noms.json`, `data/augments-fr.json` |
-| `edition.mjs` | Édition publique (`EDITION=publique`) : dit si elle est active, retire les statistiques d'augments de `stats.json` avant l'envoi. `app.mjs` y coupe le repérage du lobby, l'interface masque l'onglet Lobby, la ligne et l'onglet Lobby de l'overlay et les tableaux de statistiques d'augments | `.env` | |
 | `securite.mjs` | Parties sensibles du serveur, sorties de `app.mjs` pour être testées : chemin des fichiers servis (reste dans `public/`), lecture bornée des corps de requête, Riot ID et valeurs de `.env` sans saut de ligne, Content-Security-Policy et en-têtes de sécurité de toutes les réponses | | |
 | `collecter.mjs` | Lit le classement des rangs choisis (Challenger, GM, Master, puis divisions paginées), récupère les parties des joueurs via la file de jobs, compacte, historise ton rang | API Riot, `tft.db` | `tft.db`, `data/rang.jsonl`, `data/collecte.lock` |
 | `db.mjs` | Base SQLite : parties, participants, rangs relevés, rang de chaque partie au moment où elle a été jouée, file de jobs, budget horaire, import de l'ancien `parties.jsonl`, export, sauvegarde quotidienne (`sauvegarder()` : copie par `VACUUM INTO`, vérifiée, 7 gardées) | `data/parties.jsonl` (une fois) | `data/tft.db`, `data/sauvegardes/tft-AAAA-MM-JJ.db` |
@@ -226,12 +225,12 @@ Sous Electron, `/api/overlay` accepte toujours `forme` et `bouger` mais ne les t
         - **`creer-raccourci.bat` cassé par une apostrophe** (14/10/2026). Le dossier de l'appli était collé (`%~dp0`) dans le texte de la commande PowerShell, entre apostrophes : un dossier comme `C:\Users\O'Brien\tft-stats` donnait une erreur d'analyse (« Jeton inattendu ») et aucun raccourci. Reproduit, puis corrigé : le dossier passe par la variable d'environnement `TFT_DIR`, comme le fait déjà `app.mjs` pour le démarrage avec Windows. Seule l'apostrophe posait problème : `&`, parenthèses, accents, espaces, `%`, `^`, `!` et la syntaxe PowerShell (`$`, accent grave) passaient déjà. `tests/raccourci.test.mjs` lance une copie du vrai script, par `cmd` comme l'Explorateur, dans quatre dossiers aux noms piégés (seuls le Bureau et le menu Démarrer sont remplacés par des dossiers temporaires), puis relit les raccourcis créés (cible, arguments, dossier de travail). Les autres lanceurs (`.vbs`, `tester-cle.bat`, `installer-electron.bat`) mettent le chemin entre guillemets doubles et n'avaient pas ce défaut.
     - **Sauvegarde quotidienne de la base (14/10/2026).** `tft.db` (75 Mo, 10 963 parties) n'existait qu'en un exemplaire, hors de git. Une fois par jour, `sauvegarder()` (`db.mjs`) en fait une copie par `VACUUM INTO`, qui lit un état cohérent même pendant une collecte (mode WAL). La copie est écrite à côté, vérifiée (`PRAGMA quick_check` et lecture du nombre de parties), puis renommée en `data/sauvegardes/tft-AAAA-MM-JJ.db` (date locale). Les 7 plus récentes sont gardées ; les autres fichiers du dossier ne sont jamais touchés. Mesures sur une copie de la vraie base : 2,6 s la première fois (0,9 s ensuite), vérification 0,1 s. Faite dans un fil à part, `sauvegarde-worker.mjs` : pendant la copie, le serveur a répondu en 3 ms au plus. Résultat dans `data/app.log` et dans Réglages > Application (dernière sauvegarde, nombre gardé). Restauration : `LISEZMOI.txt`. Limite : les copies sont sur le même disque que la base ; elles protègent d'une base abîmée ou d'une erreur, pas d'une panne de disque.
     - **Relecture ligne par ligne de l'interface, `public/app.js` (14/10/2026).** Toutes les valeurs insérées dans le HTML sont échappées (`esc()`) ou numériques, y compris les noms des joueurs du lobby (choisis par eux) ; aucun script en ligne. Corrigé : les titres disaient « Argent–Or » en dur (Mes compos, Mes parties, diagnostic) alors que les rangs analysés étaient autres (ici Argent III → Challenger) : ils viennent maintenant du filtre de la dernière analyse (`stats.qualite.rangs.filtre`). L'onglet Synergies colorait les champions avec une table de coûts du set 18 écrite en dur : il prend le coût fourni par l'analyse (`unitsIndex`), qui suivra les prochains sets. Un onglet mémorisé qui n'existe plus est ignoré au lieu d'afficher une erreur. Retiré : `ICONS`, jamais rempli. Vérifié dans Electron sur une copie des données (onglets, libellés, couleurs, compo suivie hors de la première page : section par niveau ouverte et remplie, aucune erreur de console).
-    - **Édition publique (14/10/2026).** Préparation d'une sortie grand public, après lecture de la politique de Riot pour TFT et des règles d'Overwolf : `EDITION=publique` retire le repérage du lobby (refusé : *scouting*, statistiques du lobby pendant la partie, informations inconnues avant la partie) et toutes les statistiques d'augments (Riot : pas de taux de victoire des augments de Légende ; Overwolf : aucun taux de victoire ni place moyenne d'augment). Le serveur coupe le repérage et `/api/lobby`, et filtre `/api/stats` (brut et compressé) ; l'interface masque ce qui en dépend. L'édition personnelle, par défaut, ne change pas. Tests : `tests/edition.test.mjs` (les deux éditions sur un vrai serveur). Vérifié dans Electron. Démarches et brouillons (description pour Riot, politique de confidentialité, conditions) : `docs/publication/`. Une sortie publique demande aussi une clé de production gardée sur un serveur, qui reste à construire.
+    - **Édition publique (14/10/2026), retirée le 28/10/2026.** `EDITION=publique` retirait le repérage du lobby et les statistiques d'augments pour une sortie grand public. La publication est abandonnée (§7) : `edition.mjs`, ses tests et `docs/publication/` sont supprimés (récupérables dans l'historique git, commit 4c830cf).
     - **Reste connu, non corrigé** : `lcu.mjs` désactive la vérification du certificat du client LoL (`rejectUnauthorized: false`), ce qui est normal pour une connexion à 127.0.0.1 avec le certificat auto-signé de Riot.
 
 ## 6. Trajectoire proposée
 
-**Où en est le projet** (mis à jour le 15/10/2026, dernier état poussé sur `main`) :
+**Où en est le projet** (mis à jour le 28/10/2026) :
 
 | Étape | État | Où |
 |---|---|---|
@@ -241,10 +240,10 @@ Sous Electron, `/api/overlay` accepte toujours `forme` et `bouger` mais ne les t
 | Phase 3 : coque Electron | Faite (13/10), sans paquet installable | ci-dessous |
 | Fonctions du 14/10 : compo par niveau, code d'équipe, journal et choix du patch, classement par niveau, images | Faites | §5, points 15 à 17 |
 | Revue complète du code, sécurité, robustesse, sauvegarde quotidienne | Faite (14/10), 133 tests | §5, point 18 |
-| Phase 5 : publication grand public | **En cours** : édition publique et brouillons faits, démarches Riot à lancer | Phase 5 ci-dessous, `docs/publication/LISEZMOI.md` |
+| Phase 5 : publication grand public | Abandonnée (28/10) : l'application reste pour un usage personnel | §7 |
 | Phase 4 : couche LLM | Non commencée, facultative | ci-dessous |
 
-**Prochaine action** : l'utilisateur crée le produit sur le portail développeur Riot et demande une clé de production (description prête : `docs/publication/riot-application.md`). Rien d'autre de la phase 5 n'avance sans cette clé.
+**Prochaine action** : rendre les compos par niveau jouables (plateaux faciles à trouver en boutique au début, passages d'un niveau à l'autre qui se suivent), puis choisir les plateaux du début pour leurs synergies.
 
 **Principe** : faire évoluer le code existant, sans le réécrire. L'application fonctionne, elle a déjà 4 900 parties et une logique métier riche (compos, objets, rang, lobby, récap). Une réécriture en Electron ou TypeScript ne résoudrait pas les vrais problèmes (échantillonnage, validation, stockage).
 
@@ -290,11 +289,8 @@ Sous Electron, `/api/overlay` accepte toujours `forme` et `bouger` mais ne les t
 - Chaque chiffre cité doit exister dans le snapshot, sinon la réponse est rejetée.
 - Désactivable. L'application fonctionne sans.
 
-**Phase 5 : publication grand public** — **en cours depuis le 14/10/2026** (suivi détaillé : `docs/publication/LISEZMOI.md`)
-- Règles : [politique de Riot pour TFT](https://developer.riotgames.com/docs/tft) et [conformité TFT d'Overwolf](https://dev.overwolf.com/ow-electron/guides/game-compliance/teamfight-tactics). Clé de production obligatoire, jamais livrée dans l'application : il faut un serveur.
-- Fait : édition publique (`EDITION=publique`, `edition.mjs`) sans repérage du lobby ni statistiques d'augments ; brouillons de la description pour Riot, de la politique de confidentialité et des conditions d'utilisation (`docs/publication/`).
-- À faire par l'utilisateur : produit sur le portail Riot et demande de clé de production ; hébergement ; compléter et faire relire les documents juridiques ; comptes Microsoft Store et Overwolf.
-- À faire ensuite (code) : serveur de collecte et d'analyse (reprend `collecter`, `db`, `analyser`), application qui lit ce serveur, Riot Sign On pour « Mes parties », paquet MSIX pour le Microsoft Store, puis portage vers ow-electron pour Overwolf.
+**Phase 5 : publication grand public** — **abandonnée le 28/10/2026**
+- L'utilisateur garde l'application pour lui. L'édition publique, les brouillons pour Riot (description du produit, politique de confidentialité, conditions d'utilisation) et le suivi de `docs/publication/` sont supprimés ; ils restent dans l'historique git (commit 4c830cf).
 
 **Note sur les « agents »** : les étapes imaginées (collecte, normalisation, analyse, restitution) existent déjà sous forme de modules. Inutile d'en faire des agents LLM : le code déterministe est plus fiable et moins coûteux. Un LLM n'apporte de valeur qu'à la restitution (phase 4).
 
@@ -310,13 +306,12 @@ Sous Electron, `/api/overlay` accepte toujours `forme` et `bouger` mais ne les t
 - **Pas d'accès à distance** (14/10/2026) : mode téléphone et code PIN retirés, le serveur n'écoute que sur ce PC.
 - **Aucune ressource externe dans l'interface** (14/10/2026) : polices hébergées dans `public/fonts/`, politique de sécurité sans hôte externe.
 - **Sauvegarde quotidienne de la base** (14/10/2026) : `data/sauvegardes/`, 7 jours gardés.
-- **Édition publique distincte** (14/10/2026) : la version grand public suit les règles de Riot pour TFT ; l'édition personnelle garde toutes les fonctions.
+- **Usage personnel uniquement** (28/10/2026) : pas de publication grand public. L'édition publique et les démarches auprès de Riot sont abandonnées.
 
 **En attente**
 1. Langue du code et de la doc technique : anglais recommandé, interface en français avec i18n.
 2. Plateforme : Windows seul en v1 (lockfile LoL, overlay).
 3. Réintégrer une source tierce : seulement avec l'accord écrit de son éditeur, et sur décision de l'utilisateur.
-4. Publication : ordre des plateformes (proposé : Microsoft Store, gratuit et signé par Microsoft, puis Overwolf), hébergement du serveur, modèle économique (Riot impose une version gratuite), nom du produit (règles de Riot sur « TFT » dans un nom, non vérifiées).
 
 ## 8. Sources de données
 
@@ -357,5 +352,4 @@ Sous Electron, `/api/overlay` accepte toujours `forme` et `bouger` mais ne les t
 - `npm run analyse` (ou `node analyser.mjs [--tous]`) : analyse seule (`--tous` pour tous les patchs).
 - `npm run lint` : vérifie la syntaxe. `npm test` : lance les tests.
 - `node scripts/analyse-reference.mjs --donnees <copie de data> --sortie <dossier> [--code <racine>]` puis `node scripts/analyse-comparer.mjs <A> <B>` : avant de retoucher l'analyse, vérifier que ses résultats ne changent pas (sur une copie, jamais le vrai `data/`).
-- Réglage `EDITION=publique` (`.env`) : édition publique, sans repérage du lobby ni statistiques d'augments.
 - Variables pour les tests et les essais : `TFT_DATA` (dossier de données), `TFT_ENV` (fichier `.env`), `TFT_PORT` (port), `TFT_RANGS` (rangs analysés), `TFT_PATCH` (patch analysé), `TFT_HORS_LIGNE=1` (pas de journal des patchs depuis Data Dragon), `TFT_SAUVEGARDE_DELAI` (délai avant la première sauvegarde, en ms), `NO_OPEN=1` (aucune fenêtre). `TFT_ELECTRON=1` est posée par Electron pour son serveur.

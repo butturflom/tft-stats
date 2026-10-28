@@ -17,7 +17,6 @@ import { releverVersion } from './patchs.mjs';
 import { scoutLobby, scoutState, readLobby } from './scout.mjs';
 import { ouvrir, nombreParties, etatFile, rangsCibles, getMeta, DOSSIER_SAUVEGARDES, listeSauvegardes, nomSauvegarde } from './db.mjs';
 import { cheminDansDossier, lireCorps, riotIdValide, ENTETES_SECURITE } from './securite.mjs';
-import { estPublique, sansStatsInterdites } from './edition.mjs';
 
 const PORT = Number(process.env.TFT_PORT) || 3777;   // TFT_PORT : autre port, pour les tests
 const LOCAL = '127.0.0.1';
@@ -53,8 +52,7 @@ function settingsView() {
     overlayAlpha: Math.min(255, Math.max(90, num(env.OVERLAY_ALPHA, 170))),
     overlayCompact: env.OVERLAY_COMPACT === '1',
     overlayForme: env.OVERLAY_FORME !== '0',
-    lobbyAuto: env.LOBBY_AUTO !== '0' && !estPublique(env),
-    editionPublique: estPublique(env),
+    lobbyAuto: env.LOBBY_AUTO !== '0',
     demarrageWindows: process.platform === 'win32' && fs.existsSync(startupLnk()),
     jours: num(env.JOURS, 14),
     patch: env.PATCH !== undefined ? String(env.PATCH).trim() : env.PATCH_SEUL === '1' ? 'courant' : '',
@@ -179,7 +177,6 @@ function sauvegardeDuJour() {
 
 // ---- Repérage du lobby ----
 async function scanLobby(puuid, gameId, puuids) {
-  if (estPublique(readEnv())) return null;   // pas de repérage du lobby dans l'édition publique (edition.mjs)
   if (!settingsView().keyPresent) return null;
   let id = puuid || await currentPuuid();
   if (!id) { try { const env = loadEnv(); id = await myPuuidFromEnv(new Riot(env), env); } catch {} }
@@ -313,7 +310,6 @@ async function traiter(req, res) {
       return json(res, 200, { ok: true });
     }
     if (p === '/api/lobby') {
-      if (estPublique(readEnv())) return json(res, 403, { erreur: 'Repérage du lobby indisponible dans l\'édition publique (règles de Riot pour TFT)' });
       scanLobby(null, null); return json(res, 200, { ok: true });
     }
     if (p === '/api/overlay') {
@@ -398,7 +394,7 @@ async function traiter(req, res) {
   }
 
   if (p === '/api/etat') return json(res, 200, publicState());
-  if (p === '/api/lobby') return json(res, 200, { lobby: estPublique(readEnv()) ? null : readLobby(), scout: scoutState });
+  if (p === '/api/lobby') return json(res, 200, { lobby: readLobby(), scout: scoutState });
   if (p === '/api/codes') {
     // Codes d'équipe (à coller dans le planificateur de TFT) de chaque compo, par niveau
     const mt = f => { try { return fs.statSync(f).mtimeMs; } catch { return 0; } };
@@ -429,12 +425,9 @@ async function traiter(req, res) {
   if (p === '/api/stats') {
     if (!fs.existsSync(STATS)) return json(res, 404, { erreur: 'pas encore de données' });
     const m = fs.statSync(STATS).mtimeMs;
-    // Édition publique : les statistiques d'augments sont retirées avant l'envoi (edition.mjs)
-    const pub = estPublique(readEnv());
-    if (!statsCache || statsCache.m !== m || statsCache.pub !== pub) {
-      let brut = fs.readFileSync(STATS);
-      if (pub) brut = Buffer.from(JSON.stringify(sansStatsInterdites(JSON.parse(brut))));
-      statsCache = { m, pub, brut, gz: zlib.gzipSync(brut, { level: 6 }) };
+    if (!statsCache || statsCache.m !== m) {
+      const brut = fs.readFileSync(STATS);
+      statsCache = { m, brut, gz: zlib.gzipSync(brut, { level: 6 }) };
     }
     const gz = /gzip/.test(req.headers['accept-encoding'] || '');
     const corps = gz ? statsCache.gz : statsCache.brut;
