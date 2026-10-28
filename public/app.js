@@ -202,15 +202,24 @@ function niveauxHtml(c, ov) {
   const lv = c.niveaux;
   if (!lv || !lv.length) return '';
   const cur = niveauDe(c), n = lv.find(x => x.niveau === cur) || lv[lv.length - 1];
+  const pf = n.plafonds;
   const note = n.source === 'observe'
-    ? `Observé sur ${int(n.n)} plateaux de cette compo finis au niveau ${n.niveau}.`
-    : `Reconstitué : seulement ${int(n.n)} plateau${n.n > 1 ? 'x' : ''} de cette compo finissent au niveau ${n.niveau}. On prend les champions les plus joués que la boutique propose à ce niveau.`;
+    ? `Observé : champions les plus joués par les ${int(n.n)} plateaux de cette compo finis au niveau ${n.niveau} (ceux du top 4 quand il y en a assez).`
+    : pf ? `Reconstitué depuis le niveau ${n.niveau + 1}, selon ce que la boutique propose au niveau ${n.niveau} : ${pf[3] ? `${pf[3]} champion${pf[3] > 1 ? 's' : ''} à 3 pièces ou plus` : 'aucun champion à 3 pièces'}${pf[4] ? ` (dont ${pf[4]} à 4 pièces ou plus)` : ''}, ${pf[2]} à 2 pièces ou plus. Les plateaux finis à ce niveau sont surtout ceux de joueurs éliminés tôt : ils ne servent pas de modèle.`
+    : `Reconstitué : seulement ${int(n.n)} plateau${n.n > 1 ? 'x' : ''} de cette compo finissent au niveau ${n.niveau}. On prend ses champions les plus joués.`;
+  // Passage depuis le niveau précédent : champions à acheter et à vendre
+  const nomsDe = ids => ids.map(id => esc((uIdx(id) || { nom: id }).nom)).join(', ');
+  const ajoute = n.ajoute || [], retire = n.retire || [];
+  const passage = n.niveau === lv[0].niveau || !n.ajoute ? ''
+    : !ajoute.length && !retire.length ? `Niveau ${n.niveau - 1} → ${n.niveau} : rien à changer.`
+    : `Niveau ${n.niveau - 1} → ${n.niveau} : ${ajoute.length ? `achète ${nomsDe(ajoute)}` : ''}${ajoute.length && retire.length ? ' · ' : ''}${retire.length ? `vends ${nomsDe(retire)}` : ''}.${ajoute.length >= 3 ? ' C\'est le passage qui change le plus la compo : on dépense souvent son or à ce niveau pour trouver les champions chers.' : ''}`;
   const board = ov
     ? `<div class="ovstrip wrap">${n.unites.map(u => { const i = uIdx(u.id) || { nom: u.id }; return `<div class="ovcard">${ovUnit(u, true)}<span>${esc(i.nom)}</span></div>`; }).join('')}</div>`
     : boardHtml(n.unites);
   return `<div class="nivbox" data-cle="${esc(c.cle)}" data-ov="${ov ? 1 : 0}">
     <div class="nivbar" role="tablist" aria-label="Niveau du joueur">${lv.map(x => `<button type="button" role="tab" class="niv${x.niveau === cur ? ' on' : ''}${x.source === 'estime' ? ' est' : ''}" aria-selected="${x.niveau === cur}" data-niv="${x.niveau}" data-niv-cle="${esc(c.cle)}" title="${x.source === 'observe' ? 'Observé' : 'Reconstitué'} · niveau ${x.niveau}">${ov ? '' : 'Niveau '}${x.niveau}</button>`).join('')}</div>
     ${board}
+    ${passage ? `<p class="nivpassage${ov ? ' ovtxt' : ''}">${passage}</p>` : ''}
     <p class="nivnote ${ov ? 'ovtxt' : 'muted'}"><small>${esc(note)}</small></p>
     <div class="row nivcopy">${copieBtn(c, cur, ov)}<span class="copie-etat" aria-live="polite"></span></div>
   </div>`;

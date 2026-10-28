@@ -29,7 +29,7 @@ Application locale pour Windows. Elle collecte les parties classées TFT (EUW) v
 | `securite.mjs` | Parties sensibles du serveur, sorties de `app.mjs` pour être testées : chemin des fichiers servis (reste dans `public/`), lecture bornée des corps de requête, Riot ID et valeurs de `.env` sans saut de ligne, Content-Security-Policy et en-têtes de sécurité de toutes les réponses | | |
 | `collecter.mjs` | Lit le classement des rangs choisis (Challenger, GM, Master, puis divisions paginées), récupère les parties des joueurs via la file de jobs, compacte, historise ton rang | API Riot, `tft.db` | `tft.db`, `data/rang.jsonl`, `data/collecte.lock` |
 | `db.mjs` | Base SQLite : parties, participants, rangs relevés, rang de chaque partie au moment où elle a été jouée, file de jobs, budget horaire, import de l'ancien `parties.jsonl`, export, sauvegarde quotidienne (`sauvegarder()` : copie par `VACUUM INTO`, vérifiée, 7 gardées) | `data/parties.jsonl` (une fois) | `data/tft.db`, `data/sauvegardes/tft-AAAA-MM-JJ.db` |
-| `analyser.mjs` | Enchaîne les étapes de l'analyse (dossier `analyse/`) dans l'ordre, bloque la publication si le contrôle échoue, écrit `stats.json` | `tft.db`, `rang.jsonl`, `noms.json`, `augments-fr.json`, `app-etat.json` | `data/stats.json` (format 15), `data/qualite.json` |
+| `analyser.mjs` | Enchaîne les étapes de l'analyse (dossier `analyse/`) dans l'ordre, bloque la publication si le contrôle échoue, écrit `stats.json` | `tft.db`, `rang.jsonl`, `noms.json`, `augments-fr.json`, `app-etat.json` | `data/stats.json` (format 16), `data/qualite.json` |
 | `analyse/` | Une étape de l'analyse par fichier : `selection.mjs` (lecture et contrôle des parties, patch, set, rang au moment de la partie), `plateaux.mjs` (plateau de chaque joueur : carry, trait principal, augments), `compos.mjs` (compos, classement par niveau, bascules, duels, contestation), `traits-unites.mjs`, `coaching.mjs` (tes parties, coaching, récap), `objets.mjs` (augments, plateau type, index des champions et des objets), `rang.mjs` (historique des LP), `qualite.mjs` (bilan et blocage), `resume.mjs` (console), `outils.mjs` (seuils, résumé statistique, patchs, relevés de rang, noms). Les étapes se complètent dans l'ordre : l'ordre des appels de `analyser.mjs` fixe celui des clés de `stats.json` | voir `analyser.mjs` | |
 | `images.mjs` | Images de l'interface servies par l'appli (`/img/...`) avec cache disque : icônes carrées des champions lues dans le client LoL, repli et autres images sur Data Dragon | `data/icones/`, `data/noms.json` | `data/icones/dd/` |
 | `analyse-worker.mjs` | Fil séparé qui exécute l'analyse (plusieurs secondes de calcul) sans figer le serveur | `tft.db` | `data/stats.json` |
@@ -70,7 +70,7 @@ API Riot (europe / euw1)            Client LoL local (lockfile)        Data Drag
   analyser.mjs ◄── valider.mjs · rang au moment de la partie · noms, augments
         │  filtre patch/set/rang · statistiques (Wilson, a priori) · compos · rang
         ▼
-  data/stats.json (format 15) + data/qualite.json
+  data/stats.json (format 16) + data/qualite.json
         │
         ▼
   app.mjs : HTTP 127.0.0.1:3777, orchestrateur
@@ -122,7 +122,7 @@ Mode WAL et `busy_timeout` de 5 s : l'application et `collecter.bat` peuvent éc
 - `seed` : rang de la division d'où vient le joueur **au moment de la collecte**, `MOI` ou `LOBBY`. Sert de repli quand le rang au moment de la partie est inconnu (§5, point 2).
 - **Aucun PUUID dans le JSON** (ni dans `stats.json`, ni dans l'export), sauf l'indicateur `me`. Les PUUID sont dans les tables `participants` et `rangs`, en local, pour dater le rang de chaque partie.
 
-### `stats.json` (format 15)
+### `stats.json` (format 16)
 
 Champs de premier niveau : `format`, `patch`, `set`, `parties`, `plateaux`, `controleMoyenne`, `periode`, `rangs`, `sansCarry`, `ddragon` (version des données Data Dragon utilisée), `contestationGlobale`, `compos`, `traits`, `unites`, `moi`, `unitsIndex`, `itemsIndex`, `rang`, `augmentsLobby`, `qualite`.
 
@@ -141,6 +141,8 @@ Format 12 (14/10/2026) : `niveauxGlobal` (par niveau de fin 4 à 10 : plateaux, 
 Format 14 : `filtre` (`{ choix, applique }`, choix du patch demandé et s'il a pu être appliqué), `patchs` compte maintenant toutes les parties de chaque patch du set (et non plus seulement celles de la période analysée), `patchsInconnu` (parties sans patch connu). `app.mjs` relance l'analyse si le format lu est inférieur à 14.
 
 Format 15 (14/10/2026) : `parNiveau` gagne, par compo et par niveau de fin : `top1Low` et `top4Low` (bornes basses de Wilson à 95 %, `niveaux.mjs`), `atteint` (part des plateaux de la compo qui finissent à ce niveau **ou plus**), `nAtteint`, `top4Atteint` (top 4 chez ceux-là), `rep` (nombre de plateaux par place, 1 à 8), `bas` (part des places 7-8) et `sigma` (écart-type des places). `niveauxGlobal` gagne `bas`, `atteint` et `top4Atteint` pour comparer. Le tri par défaut du classement est la borne basse du top 4 : une compo vue sur 2 plateaux ne passe plus devant une compo éprouvée. Mesuré le 14/10 : le dernier round, les dégâts et les éliminations n'ont pas été retenus (dégâts et éliminations valent 0 dans le set 18, le dernier round est corrélé à -0,9 avec la place, l'or restant à moins de 0,11). `app.mjs` relance l'analyse si le format lu est inférieur à 15.
+
+Format 16 (28/10/2026) : chaque entrée de `niveaux` gagne `ajoute` et `retire` (champions à acheter et à vendre en arrivant à ce niveau depuis le précédent, vides au niveau 4) et, aux niveaux 4 à 7, `plafonds` (nombre maximum de champions coûtant 2, 3, 4 et 5 pièces ou plus). `source` ne vaut plus `observe` qu'à partir du niveau 8 (`NIVEAU_OBSERVE`) ; un niveau observé prend les plateaux du top 4 quand il y en a au moins 12. Calcul : §5, point 19. `app.mjs` relance l'analyse si le format lu est inférieur à 16.
 
 Incrémenter `format` à chaque changement de structure.
 
@@ -227,6 +229,12 @@ Sous Electron, `/api/overlay` accepte toujours `forme` et `bouger` mais ne les t
     - **Relecture ligne par ligne de l'interface, `public/app.js` (14/10/2026).** Toutes les valeurs insérées dans le HTML sont échappées (`esc()`) ou numériques, y compris les noms des joueurs du lobby (choisis par eux) ; aucun script en ligne. Corrigé : les titres disaient « Argent–Or » en dur (Mes compos, Mes parties, diagnostic) alors que les rangs analysés étaient autres (ici Argent III → Challenger) : ils viennent maintenant du filtre de la dernière analyse (`stats.qualite.rangs.filtre`). L'onglet Synergies colorait les champions avec une table de coûts du set 18 écrite en dur : il prend le coût fourni par l'analyse (`unitsIndex`), qui suivra les prochains sets. Un onglet mémorisé qui n'existe plus est ignoré au lieu d'afficher une erreur. Retiré : `ICONS`, jamais rempli. Vérifié dans Electron sur une copie des données (onglets, libellés, couleurs, compo suivie hors de la première page : section par niveau ouverte et remplie, aucune erreur de console).
     - **Édition publique (14/10/2026), retirée le 28/10/2026.** `EDITION=publique` retirait le repérage du lobby et les statistiques d'augments pour une sortie grand public. La publication est abandonnée (§7) : `edition.mjs`, ses tests et `docs/publication/` sont supprimés (récupérables dans l'historique git, commit 4c830cf).
     - **Reste connu, non corrigé** : `lcu.mjs` désactive la vérification du certificat du client LoL (`rejectUnauthorized: false`), ce qui est normal pour une connexion à 127.0.0.1 avec le certificat auto-signé de Riot.
+19. **Compos par niveau jouables (28/10/2026).** Constat de l'utilisateur en jeu : au niveau 4, la compo proposait des champions à 3 pièces difficiles à trouver ; en arrivant aux niveaux 6 et 7, les plateaux proposés ne suivaient pas ceux d'avant. Mesuré sur une copie de ses 38 480 parties (390 compos) :
+    - **Cause.** Chaque niveau était calculé seul. Un niveau avec au moins 12 plateaux finis à ce niveau était « observé » ; or les plateaux finis aux niveaux 5, 6 et 7 sont surtout ceux de joueurs éliminés tôt (place moyenne 7,9, 7,2 et 5,8, contre 4,8 au niveau 8). Sinon, seul le coût maximum en boutique était vérifié (3 pièces aux niveaux 4 et 5). Résultat : au passage 5 → 6, 1,16 champion vendu en moyenne et jusqu'à 4 ; 208 compos avec plus d'un champion à 3 pièces ou plus au niveau 4 ; 321 avec un champion à 4 pièces au niveau 6.
+    - **Calcul (`niveaux.mjs`).** Les niveaux 8 à 10 restent observés (plateaux du top 4 s'il y en a au moins 12) ou, à défaut, reconstitués avec les champions les plus importants de la compo (part des plateaux du top 4 qui les jouent ; le carry passe devant). Les niveaux 7 à 4 sont reconstruits en redescendant : on part du plateau du niveau au-dessus et on garde ses champions les plus importants (à égalité, les moins chers), sans dépasser les plafonds de coût du niveau (`plafondsCout`). Les places libérées vont à d'autres champions vus dans la compo, plus faciles à trouver. Plafonds : nombre moyen de champions de chaque coût proposés par la boutique, arrondi (`CHANCES_BOUTIQUE`, chances des derniers sets, à vérifier quand un set les change). Exemples : niveau 4, 1 champion à 3 pièces et 2 à 2 pièces ou plus ; niveau 6, aucun à 4 pièces ; niveau 7, un seul.
+    - **Résultat.** Aucun champion vendu aux passages 4 → 5 et 5 → 6, au plus un au passage 6 → 7. Plus d'un champion à 3 pièces ou plus au niveau 4 : 3 compos ; un champion à 4 pièces au niveau 6 : 1 compo (compos qui n'ont pas assez de champions bon marché). Le gros changement se fait maintenant au passage 7 → 8 (1,4 champion vendu en moyenne, jusqu'à 6 pour les compos de champions à 4 et 5 pièces) : c'est là que les joueurs dépensent leur or pour trouver les champions chers. L'interface affiche chaque passage (« Niveau 5 → 6 : achète …, vends … ») et le prévient quand il change beaucoup.
+    - **Limite.** Riot ne donne que le plateau de fin de partie : les niveaux 4 à 7 restent des reconstitutions. Les synergies ne sont pas encore prises en compte dans le choix des champions (prochaine étape).
+    - Tests : `tests/niveaux.test.mjs` (plafonds respectés, passages cohérents, plateaux finis tôt ignorés, top 4 préféré, compo sans champion bon marché).
 
 ## 6. Trajectoire proposée
 
@@ -240,10 +248,11 @@ Sous Electron, `/api/overlay` accepte toujours `forme` et `bouger` mais ne les t
 | Phase 3 : coque Electron | Faite (13/10), sans paquet installable | ci-dessous |
 | Fonctions du 14/10 : compo par niveau, code d'équipe, journal et choix du patch, classement par niveau, images | Faites | §5, points 15 à 17 |
 | Revue complète du code, sécurité, robustesse, sauvegarde quotidienne | Faite (14/10), 133 tests | §5, point 18 |
+| Compos par niveau jouables : plafonds de coût selon la boutique, passages d'un niveau à l'autre | Faite (28/10), 134 tests | §5, point 19 |
 | Phase 5 : publication grand public | Abandonnée (28/10) : l'application reste pour un usage personnel | §7 |
 | Phase 4 : couche LLM | Non commencée, facultative | ci-dessous |
 
-**Prochaine action** : rendre les compos par niveau jouables (plateaux faciles à trouver en boutique au début, passages d'un niveau à l'autre qui se suivent), puis choisir les plateaux du début pour leurs synergies.
+**Prochaine action** : choisir les champions des niveaux 4 à 7 pour leurs synergies (paliers de traits actifs), en priorité ceux de la compo finale. Il faut les traits de chaque champion : vérifier si le fichier du planificateur d'équipe du client LoL les donne, sinon les déduire des plateaux.
 
 **Principe** : faire évoluer le code existant, sans le réécrire. L'application fonctionne, elle a déjà 4 900 parties et une logique métier riche (compos, objets, rang, lobby, récap). Une réécriture en Electron ou TypeScript ne résoudrait pas les vrais problèmes (échantillonnage, validation, stockage).
 

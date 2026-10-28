@@ -356,6 +356,8 @@ a.ghost{display:inline-block;text-decoration:none;color:inherit}
 .niv{border:1px solid var(--line);background:var(--panel-2);border-radius:8px;padding:4px 12px;font-size:.84rem;font-weight:600;color:var(--muted)}
 .niv.est{border-style:dashed}
 .niv.on{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.nivpassage{margin:8px 0 0;padding:6px 10px;border-left:3px solid var(--accent);background:var(--accent-soft);border-radius:0 6px 6px 0;font-size:.86rem}
+.ovbody .nivpassage{background:transparent;border-left-color:var(--hc);padding:2px 8px;border-radius:0}
 .nivnote{margin:8px 0 6px}
 .nivcopy{align-items:center;gap:10px;margin-top:6px}
 .copie-etat{font-size:.78rem;color:var(--muted);font-family:var(--f-mono);overflow-wrap:anywhere}

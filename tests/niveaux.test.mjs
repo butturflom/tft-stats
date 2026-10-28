@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { compoParNiveau, codeEquipe, lirePlanners, codesDesCompos, NIVEAUX, MIN_OBSERVE, wilsonLow, statsGlobalesNiveau, statsParNiveau } from '../niveaux.mjs';
+import { compoParNiveau, codeEquipe, lirePlanners, codesDesCompos, NIVEAUX, MIN_OBSERVE, NIVEAU_OBSERVE, plafondsCout, wilsonLow, statsGlobalesNiveau, statsParNiveau } from '../niveaux.mjs';
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tft-niv-'));
 process.env.TFT_DATA = dir;
@@ -67,6 +67,71 @@ test('étoiles : lues sur les plateaux voisins, plafonnées quand il n\'y en a p
   assert.equal(u(9, 'U1').etoiles, 3);    // lu sur les plateaux de niveau 8 à 10
   assert.equal(u(4, 'U1').etoiles, 2);    // niveau 4 sans donnée voisine : plafonné à 2★
   assert.equal(u(9, 'U9').etoiles, 3);
+});
+
+test('plafonds de coût : ce que la boutique propose en moyenne à chaque niveau', () => {
+  assert.deepEqual(plafondsCout(4), { 2: 2, 3: 1, 4: 0, 5: 0 });   // niveau 4 : un seul champion à 3 pièces
+  assert.equal(plafondsCout(6)[4], 0);                              // niveau 6 : aucun champion à 4 pièces
+  assert.equal(plafondsCout(7)[4], 1);
+  assert.equal(plafondsCout(7)[5], 0);
+});
+
+const coutChamp = new Map(CHAMPS);
+const ids = (r, n) => r.find(x => x.niveau === n).unites.map(u => u.id);
+
+test('niveaux 4 à 7 : plafonds de coût respectés', () => {
+  for (const L of NIVEAUX.filter(L => L < NIVEAU_OBSERVE)) {
+    const plaf = plafondsCout(L);
+    for (let k = 2; k <= 5; k++) {
+      const nb = ids(niveaux, L).filter(id => coutChamp.get(id) >= k).length;
+      assert.ok(nb <= plaf[k], `niveau ${L} : ${nb} champions à ${k} pièces ou plus (plafond ${plaf[k]})`);
+    }
+    assert.deepEqual(parNiveau(L).plafonds, plaf);
+  }
+  assert.equal(parNiveau(8).plafonds, undefined);
+});
+
+test('passages : chaque niveau = le précédent, plus « ajoute », moins « retire »', () => {
+  assert.deepEqual([parNiveau(4).ajoute, parNiveau(4).retire], [[], []]);
+  for (let i = 1; i < NIVEAUX.length; i++) {
+    const avant = ids(niveaux, NIVEAUX[i - 1]), x = parNiveau(NIVEAUX[i]);
+    const attendu = avant.filter(id => !x.retire.includes(id)).concat(x.ajoute);
+    assert.deepEqual(attendu.sort(), ids(niveaux, NIVEAUX[i]).sort(), `niveau ${NIVEAUX[i]}`);
+  }
+  // Les champions les moins chers restent d'un niveau à l'autre : on ne vend rien entre les niveaux 4 et 8
+  for (const L of [5, 6, 7, 8]) assert.deepEqual(parNiveau(L).retire, [], `niveau ${L}`);
+  assert.deepEqual(parNiveau(5).ajoute, ['U5']);
+});
+
+test('plateaux finis tôt ignorés, plateaux du top 4 préférés', () => {
+  const avec = (lvl, p, units) => ({ lvl, p, units: units.map(([id, cost]) => ({ id, star: 1, items: [], cost })) });
+  const b = [
+    // 20 joueurs éliminés au niveau 6 avec un champion que personne d'autre ne joue
+    ...Array.from({ length: 20 }, () => avec(6, 8, [['PERDANT', 1], ...CHAMPS.slice(0, 5)])),
+    // niveau 8 : le top 4 joue U1 à U8, les 7e et 8e places jouent autre chose
+    ...Array.from({ length: MIN_OBSERVE }, () => avec(8, 2, CHAMPS.slice(0, 8))),
+    ...Array.from({ length: MIN_OBSERVE }, () => avec(8, 8, [...CHAMPS.slice(0, 4), ['X1', 2], ['X2', 2], ['X3', 3], ['X4', 4]])),
+  ];
+  const r = compoParNiveau(b, { carryId: 'CARRY' });
+  assert.equal(r.find(x => x.niveau === 6).source, 'estime');
+  assert.equal(r.find(x => x.niveau === 6).n, 20);
+  for (const L of NIVEAUX) assert.ok(!ids(r, L).includes('PERDANT'), `niveau ${L}`);
+  assert.equal(r.find(x => x.niveau === 8).source, 'observe');
+  assert.deepEqual(ids(r, 8).sort(), CHAMPS.slice(0, 8).map(([id]) => id).sort());
+});
+
+test('compo sans champion bon marché : complétée par d\'autres champions vus dans la compo', () => {
+  // Plateau final de champions à 4 et 5 pièces ; deux champions à 1 pièce n'apparaissent que dans 2 % des plateaux
+  const cher = [['C1', 4], ['C2', 4], ['C3', 4], ['C4', 5], ['C5', 5], ['C6', 3], ['C7', 3], ['C8', 2], ['C9', 2]];
+  const b = Array.from({ length: 100 }, (_, i) => ({
+    lvl: 9, p: 1 + (i % 8),
+    units: [...cher, ...(i < 2 ? [['RARE1', 1], ['RARE2', 1]] : [])].map(([id, cost]) => ({ id, star: 2, items: [], cost })),
+  }));
+  const r = compoParNiveau(b, {});
+  const c4 = ids(r, 4);
+  assert.equal(c4.length, 4);
+  assert.ok(c4.includes('RARE1') && c4.includes('RARE2'), c4.join(','));
+  assert.ok(c4.filter(id => ['C6', 'C7'].includes(id)).length <= 1, c4.join(','));
 });
 
 const planner = { suffixe: 'TFTSet18', codes: { U1: 0x402, U2: 1, CARRY: 0xabc } };

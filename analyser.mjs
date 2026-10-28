@@ -55,7 +55,7 @@ export async function analyse({ tous = false, quiet = false } = {}) {
 
   const out = {
     genere: new Date().toISOString(),
-    format: 15,
+    format: 16,
     // « patch » : seulement quand il décrit vraiment les parties retenues (Riot le donne, ou PATCH_SEUL=1) ; sinon « ? ».
     // « patchCourant » : patch en vigueur d'après le journal local (data/patchs.json), « patchs » : parties de chaque patch du journal.
     patch: patchRiot || patchSeul ? patchAnalyse : '?', patchSeul, set,

@@ -1,8 +1,24 @@
 // Composition d'une compo à chaque niveau de joueur (4 à 10), calculée sur les plateaux collectés.
-// Riot ne donne que le plateau de fin de partie : les niveaux rarement atteints (4 à 6) sont reconstruits.
+// Riot ne donne que le plateau de fin de partie. Les plateaux finis aux niveaux 4 à 7 sont surtout ceux de joueurs éliminés
+// tôt (place moyenne 7,9 au niveau 5, 7,2 au niveau 6, 5,8 au niveau 7) : ils ne servent pas de modèle. Ces niveaux sont
+// reconstruits en partant du plateau du niveau 8 et en redescendant, un niveau après l'autre.
 export const NIVEAUX = [4, 5, 6, 7, 8, 9, 10];
 export const MIN_OBSERVE = 12;                     // plateaux terminés à ce niveau pour parler de données observées
-export const COUT_MAX = { 4: 3, 5: 3, 6: 4, 7: 4, 8: 5, 9: 5, 10: 5 };   // coût le plus élevé qu'on trouve en boutique à ce niveau
+export const NIVEAU_OBSERVE = 8;                   // en dessous, le plateau est toujours reconstruit
+// Chances (en %) de trouver un champion de chaque coût (1 à 5) en boutique, selon le niveau du joueur. Règle du jeu fixée
+// par Riot, que l'API ne donne pas : valeurs des derniers sets, à vérifier quand un set les change.
+export const CHANCES_BOUTIQUE = {
+  4: [55, 30, 15, 0, 0], 5: [45, 33, 20, 2, 0], 6: [30, 40, 25, 5, 0], 7: [19, 30, 40, 10, 1],
+  8: [18, 25, 32, 22, 3], 9: [15, 20, 25, 30, 10], 10: [5, 10, 20, 40, 25],
+};
+// Nombre maximum de champions coûtant c ou plus (c de 2 à 5) sur un plateau de niveau L : ce que la boutique en propose
+// en moyenne, arrondi. Niveau 4 : 1 champion à 3 pièces au plus, 2 à 2 pièces ou plus ; niveau 6 : aucun à 4 pièces.
+export function plafondsCout(L) {
+  const ch = CHANCES_BOUTIQUE[L];
+  const out = {};
+  for (let c = 2; c <= 5; c++) out[c] = Math.round(L * ch.slice(c - 1).reduce((a, x) => a + x, 0) / 100);
+  return out;
+}
 const MIN_PART = 0.05;                             // part des plateaux qui jouent un champion pour qu'on puisse le proposer
 const MIN_ETOILES = 3;                             // plateaux voisins nécessaires pour lire les étoiles d'une unité
 
@@ -19,13 +35,14 @@ function medianeHisto(h) {
 }
 const ajouterHisto = (a, b) => { for (let e = 0; e < b.length; e++) a[e] += b[e]; return a; };
 
-// boards : plateaux de la compo ({ lvl, units: [{ id, star, items, cost }] }).
+// boards : plateaux de la compo ({ lvl, p, units: [{ id, star, items, cost }] }).
 // plateau : unités porteuses d'objets de la compo ({ id, objets }), pour les objets affichés.
-// Résultat : [{ niveau, source: 'observe' | 'estime', n, unites: [{ id, etoiles, objets }] }]
+// Résultat : [{ niveau, source: 'observe' | 'estime', n, unites: [{ id, etoiles, objets }], ajoute, retire, plafonds? }]
+// ajoute et retire : champions à acheter et à vendre en arrivant à ce niveau depuis le précédent (vides au niveau 4).
 export function compoParNiveau(boards, { carryId, plateau = [] } = {}) {
   const cout = new Map();
-  const total = new Map();
-  for (const b of boards) for (const u of b.units) { cout.set(u.id, u.cost); total.set(u.id, (total.get(u.id) || 0) + 1); }
+  for (const b of boards) for (const u of b.units) cout.set(u.id, u.cost);
+  const coutDe = id => Math.min(Math.max(cout.get(id) || 1, 1), 5);
   // Étoiles de chaque champion, par niveau de plateau : lu une seule fois (histogramme), pas à chaque niveau demandé
   const histo = new Map();
   for (const b of boards) for (const u of b.units) {
@@ -34,34 +51,75 @@ export function compoParNiveau(boards, { carryId, plateau = [] } = {}) {
     h[Math.min(Math.max(u.star | 0, 0), 4)]++;
   }
   const objetsDe = new Map(plateau.map(u => [u.id, u.objets || []]));
-  // Plus joués d'abord ; à égalité, les plus chers d'abord pour une compo observée, les moins chers pour une reconstitution
-  const sorted = (ids, freq, cher = 1) => [...ids].sort((a, b) => (freq.get(b) || 0) - (freq.get(a) || 0) || cher * ((cout.get(b) || 0) - (cout.get(a) || 0)));
+  // Plateaux de référence : ceux qui ont fini dans le top 4, s'il y en a assez
+  const bons = l => { const t = l.filter(b => b.p >= 1 && b.p <= 4); return t.length >= MIN_OBSERVE ? t : l; };
+  // Part des plateaux de la liste qui jouent chaque champion
+  const frequences = l => {
+    const f = new Map();
+    for (const b of l) for (const id of new Set(b.units.map(u => u.id))) f.set(id, (f.get(id) || 0) + 1);
+    for (const [id, c] of f) f.set(id, c / l.length);
+    return f;
+  };
+  // Importance d'un champion pour la compo : part des bons plateaux qui le jouent ; le carry passe devant tous les autres
+  const imp = frequences(bons(boards));
+  const pool = [...imp.keys()].filter(id => imp.get(id) >= MIN_PART);
+  // Remplaçants des petits niveaux : tout champion vu dans la compo, même rarement (une compo de 4 et 5 pièces joue peu de
+  // champions bon marché au-dessus de MIN_PART)
+  const vus = [...imp.keys()];
+  if (carryId && imp.has(carryId)) imp.set(carryId, imp.get(carryId) + 1);
+  // Plus importants d'abord ; à égalité, les moins chers, plus faciles à trouver
+  const parImportance = ids => [...ids].sort((a, b) => (imp.get(b) || 0) - (imp.get(a) || 0) || coutDe(a) - coutDe(b));
+  // Prend les candidats dans l'ordre, jusqu'à L, en sautant ceux qui dépasseraient les plafonds de coût du niveau
+  function choisir(candidats, L) {
+    const plaf = plafondsCout(L), nb = { 2: 0, 3: 0, 4: 0, 5: 0 }, ids = [];
+    for (const id of candidats) {
+      if (ids.length >= L) break;
+      const c = coutDe(id);
+      let place = true;
+      for (let k = 2; k <= c; k++) if (nb[k] >= plaf[k]) place = false;
+      if (!place) continue;
+      for (let k = 2; k <= c; k++) nb[k]++;
+      ids.push(id);
+    }
+    return ids;
+  }
+  // Dernier recours, si la compo n'a pas assez de champions bon marché : les moins chers, plafonds dépassés
+  const completer = (ids, L) => ids.length >= L ? ids
+    : ids.concat(vus.filter(id => !ids.includes(id)).sort((a, b) => coutDe(a) - coutDe(b) || (imp.get(b) || 0) - (imp.get(a) || 0)).slice(0, L - ids.length));
+
+  // Du niveau 10 au niveau 4 : chaque niveau sous NIVEAU_OBSERVE part du plateau du niveau au-dessus
+  const choix = new Map();
+  for (const L of [...NIVEAUX].reverse()) {
+    const exact = boards.filter(b => b.lvl === L);
+    if (L >= NIVEAU_OBSERVE && exact.length >= MIN_OBSERVE) {
+      // Observé : champions les plus joués des plateaux finis à ce niveau (top 4 s'il y en a assez) ; à égalité, les plus chers
+      const f = frequences(bons(exact));
+      const ids = [...f.keys()].sort((a, b) => f.get(b) - f.get(a) || coutDe(b) - coutDe(a)).slice(0, L);
+      choix.set(L, { ids, source: 'observe', n: exact.length });
+    } else if (L >= NIVEAU_OBSERVE) {
+      // Les plateaux de niveau 8 et plus ont souvent un carry à 5 pièces : pas de plafond de coût
+      choix.set(L, { ids: parImportance(pool).slice(0, L), source: 'estime', n: exact.length });
+    } else {
+      // Le plateau du niveau au-dessus, sans ce que la boutique ne propose pas encore assez ni les champions les moins
+      // importants ; les places libérées vont à d'autres champions de la compo, plus faciles à trouver
+      const dessus = choix.get(L + 1).ids;
+      let ids = choisir(parImportance(dessus), L);
+      if (ids.length < L) ids = choisir(ids.concat(parImportance(vus.filter(id => !dessus.includes(id)))), L);
+      choix.set(L, { ids: completer(ids, L), source: 'estime', n: exact.length });
+    }
+  }
 
   const out = [];
+  let avant = null;
   for (const L of NIVEAUX) {
-    const exact = boards.filter(b => b.lvl === L);
-    let ids, source, n;
-    if (exact.length >= MIN_OBSERVE) {
-      const f = new Map();
-      for (const b of exact) for (const id of new Set(b.units.map(u => u.id))) f.set(id, (f.get(id) || 0) + 1);
-      ids = sorted(f.keys(), f).slice(0, L);
-      source = 'observe'; n = exact.length;
-    } else {
-      // Reconstruction : unités les plus jouées de la compo, limitées par le coût que la boutique propose à ce niveau
-      const f = new Map([...total].map(([id, c]) => [id, c / boards.length]));
-      const tous = sorted([...f.keys()].filter(id => f.get(id) >= MIN_PART), f, -1);
-      const permis = tous.filter(id => (cout.get(id) || 1) <= COUT_MAX[L]);
-      ids = permis.slice(0, L);
-      if (ids.length < L) ids = ids.concat(sorted(tous.filter(id => !ids.includes(id)), new Map(tous.map(id => [id, -(cout.get(id) || 1)]))).slice(0, L - ids.length));
-      source = 'estime'; n = exact.length;
-    }
+    const { ids, source, n } = choix.get(L);
     const unites = ids.map(id => {
       const parNiveau = histo.get(id) || new Map();
       const proches = [0, 0, 0, 0, 0], toutes = [0, 0, 0, 0, 0];
       for (const [lvl, h] of parNiveau) { ajouterHisto(toutes, h); if (Math.abs(lvl - L) <= 1) ajouterHisto(proches, h); }
       let etoiles = proches.reduce((a, c) => a + c, 0) >= MIN_ETOILES ? medianeHisto(proches) : medianeHisto(toutes) || 1;
       // Un niveau reconstitué ne montre pas d'étoiles qu'un joueur n'a pas encore les moyens d'avoir
-      if (source === 'estime') etoiles = Math.min(etoiles, etoilesMax(cout.get(id) || 1, L));
+      if (source === 'estime') etoiles = Math.min(etoiles, etoilesMax(coutDe(id), L));
       // Objets : ceux de la compo finale, sur le carry dès le niveau 6 et sur les autres porteurs dès le niveau 7
       const porteur = objetsDe.get(id) || [];
       const objets = (id === carryId ? L >= 6 : L >= 7) ? porteur : [];
@@ -69,7 +127,13 @@ export function compoParNiveau(boards, { carryId, plateau = [] } = {}) {
     });
     // Porteurs d'objets en premier, comme le plateau de fin de partie
     unites.sort((a, b) => b.objets.length - a.objets.length || (cout.get(b.id) || 0) - (cout.get(a.id) || 0));
-    out.push({ niveau: L, source, n, unites });
+    // Passage depuis le niveau précédent : champions à acheter (les plus importants d'abord) et à vendre
+    const ajoute = avant ? parImportance(ids.filter(id => !avant.includes(id))) : [];
+    const retire = avant ? avant.filter(id => !ids.includes(id)) : [];
+    const x = { niveau: L, source, n, unites, ajoute, retire };
+    if (L < NIVEAU_OBSERVE) x.plafonds = plafondsCout(L);   // plafonds de coût appliqués, pour l'expliquer dans l'interface
+    out.push(x);
+    avant = ids;
   }
   return out;
 }
