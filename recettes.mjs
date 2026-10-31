@@ -45,6 +45,7 @@ let cdragon = { version: null, compo: {} }, enCours = null, echec = 0;
 try { cdragon = JSON.parse(fs.readFileSync(CACHE(), 'utf8')); } catch {}
 // Renvoie une promesse (true si de nouvelles recettes ont été lues) quand un téléchargement démarre, sinon null.
 export function majRecettes(version) {
+  if (process.env.TFT_HORS_LIGNE === '1') return null;   // tests : pas d'accès au réseau
   if (!version || cdragon.version === version || enCours || Date.now() - echec < 3600e3) return null;
   enCours = (async () => {
     try {

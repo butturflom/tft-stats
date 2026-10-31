@@ -1,5 +1,5 @@
 // Compos (trait principal + carry) : statistiques, classement par niveau, bascules, duels, contestation.
-import { NIVEAUX, statsGlobalesNiveau, statsParNiveau } from '../niveaux.mjs';
+import { NIVEAUX, statsGlobalesNiveau, statsParNiveau, plateauObserve } from '../niveaux.mjs';
 import { MIN_N, MIN_NIVEAU, K_DUEL, MESURES, r2, r3, summarize } from './outils.mjs';
 
 // Poids d'un plateau (analyse/ponderation.mjs) ; 1 quand il n'est pas pondéré
@@ -111,7 +111,7 @@ export function classementParNiveau({ comps, groups, boards }) {
     for (const L of NIVEAUX) {
       if (!niveauxGlobal[L]) continue;
       const x = statsParNiveau(groups.get(c.cle) || [], L, niveauxGlobal[L], K.avg, MIN_NIVEAU, { K, ancre: (m, W, S) => ancres[L][m](c.cle, W, S) });
-      if (x) c.parNiveau[L] = x;
+      if (x) { x.unites = plateauObserve(groups.get(c.cle) || [], L); c.parNiveau[L] = x; }
     }
   }
   return niveauxGlobal;

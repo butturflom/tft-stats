@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { compoParNiveau, codeEquipe, lirePlanners, lireTraitsClient, codesDesCompos, NIVEAUX, MIN_OBSERVE, NIVEAU_OBSERVE, plafondsCout, wilsonLow, statsGlobalesNiveau, statsParNiveau } from '../niveaux.mjs';
+import { compoParNiveau, plateauObserve, codeEquipe, lirePlanners, lireTraitsClient, codesDesCompos, NIVEAUX, MIN_OBSERVE, NIVEAU_OBSERVE, plafondsCout, wilsonLow, statsGlobalesNiveau, statsParNiveau } from '../niveaux.mjs';
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tft-niv-'));
 process.env.TFT_DATA = dir;
@@ -67,6 +67,39 @@ test('étoiles : lues sur les plateaux voisins, plafonnées quand il n\'y en a p
   assert.equal(u(9, 'U1').etoiles, 3);    // lu sur les plateaux de niveau 8 à 10
   assert.equal(u(4, 'U1').etoiles, 2);    // niveau 4 sans donnée voisine : plafonné à 2★
   assert.equal(u(9, 'U9').etoiles, 3);
+});
+
+test('plateau réel d\'une ligne du classement : les champions des plateaux finis à ce niveau, pas le plateau conseillé', () => {
+  const u = (id, star = 1, cost = 1) => ({ id, star, cost, items: [] });
+  const b = [
+    { lvl: 7, p: 8, units: [u('A', 2), u('B', 2), u('C')] }, { lvl: 7, p: 7, units: [u('A', 2), u('B', 1), u('D')] }, { lvl: 7, p: 6, units: [u('A', 3), u('B', 2), u('E', 1, 3)] },
+    { lvl: 9, p: 1, units: [u('Z'), u('Y'), u('X')] },
+  ];
+  const r = plateauObserve(b, 7);
+  assert.deepEqual(r.map(x => x.id).slice(0, 2), ['A', 'B']);
+  assert.equal(r[0].etoiles, 2);
+  assert.equal(r[2].id, 'E');                                     // à égalité, le plus cher d'abord
+  assert.ok(!r.some(x => ['X', 'Y', 'Z'].includes(x.id)));        // un plateau d'un autre niveau ne compte pas
+  assert.deepEqual(plateauObserve(b, 5), []);
+  // Limité au nombre de champions du niveau
+  const large = [{ lvl: 4, units: ['A', 'B', 'C', 'D', 'E', 'F'].map(id => u(id)) }];
+  assert.equal(plateauObserve(large, 4).length, 4);
+  // Un plateau peu pondéré pèse moins
+  const pond = [{ lvl: 4, w: 0.1, units: [u('VIEUX')] }, { lvl: 4, w: 1, units: [u('RECENT')] }];
+  assert.equal(plateauObserve(pond, 4)[0].id, 'RECENT');
+});
+
+test('plus gros passage : un seul signalé par compo, le plus grand, et seulement s\'il change assez', () => {
+  const v = (lvl, n, units, p = 1) => Array.from({ length: n }, () => ({ lvl, p, units: units.map(id => ({ id, star: 1, cost: 1, items: [] })) }));
+  const base8 = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'], base9 = ['A', 'B', 'C', 'D', 'E', 'F', 'R', 'S', 'T'], base10 = ['A', 'B', 'C', 'D', 'R', 'S', 'T', 'U', 'V', 'W'];
+  // 8 → 9 : 3 achetés ; 9 → 10 : 3 achetés aussi : à égalité, le premier ; 10 unités max
+  const r = compoParNiveau([...v(8, MIN_OBSERVE, base8), ...v(9, MIN_OBSERVE, base9), ...v(10, MIN_OBSERVE, base10)], {});
+  const signales = r.filter(x => x.grosPassage);
+  assert.equal(signales.length, 1);
+  assert.equal(signales[0].niveau, 9);
+  // Aucun passage assez gros
+  const calme = compoParNiveau([...v(8, MIN_OBSERVE, base8), ...v(9, MIN_OBSERVE, [...base8, 'I']), ...v(10, MIN_OBSERVE, [...base8, 'I', 'J'])], {});
+  assert.equal(calme.filter(x => x.grosPassage).length, 0);
 });
 
 test('plafonds de coût : ce que la boutique propose en moyenne à chaque niveau', () => {

@@ -206,6 +206,26 @@ test('routes de lecture sans donnée, route inconnue, JSON invalide', async () =
   assert.equal((await get('/api/etat')).status, 200, 'le serveur répond encore');
 });
 
+test('/api/fenetre : seules les trois actions connues sont transmises à Electron', async () => {
+  messages.length = 0;
+  for (const action of ['supprimer', '', null, 1, ['fermer']]) assert.equal((await post('/api/fenetre', { action })).status, 400, JSON.stringify(action));
+  assert.equal((await post('/api/fenetre', {})).status, 400);
+  await pause(50);
+  assert.equal(messages.filter(m => m.type === 'fenetre-action').length, 0);
+  for (const action of ['reduire', 'agrandir', 'fermer']) assert.equal((await post('/api/fenetre', { action })).status, 200, action);
+  await pause(50);
+  assert.deepEqual(messages.filter(m => m.type === 'fenetre-action').map(m => m.action), ['reduire', 'agrandir', 'fermer']);
+});
+
+test('/api/historique et /api/recettes répondent sans donnée', async () => {
+  const h = await get('/api/historique?n=abc');
+  assert.equal(h.status, 200);
+  assert.deepEqual(h.json.parties, []);
+  const r = await get('/api/recettes');
+  assert.equal(r.status, 200);
+  assert.equal(r.json.source, 'table');
+});
+
 test('/api/stop est accepté, /api/quitter arrête l\'application avec le code 0', async () => {
   assert.equal((await post('/api/stop', {})).status, 200);
   assert.deepEqual((await post('/api/quitter', {})).json, { ok: true });

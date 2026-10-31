@@ -25,6 +25,7 @@ const MIN_PART = 0.05;                             // part des plateaux qui joue
 const POIDS_TRAIT = 0.3;                           // palier d'un trait absent du niveau 8
 const POIDS_TRAIT_FINAL = 0.6;                     // palier d'un trait actif au niveau 8
 const COUT_VENTE = 0.6;
+const GROS_PASSAGE = 3;                            // champions achetés d'un coup à partir desquels le plus gros passage d'une compo est signalé
 const MAX_CANDIDATS = 25;                          // champions de la compo essayés en remplacement (les plus importants)
 const MIN_ETOILES = 3;                             // plateaux voisins nécessaires pour lire les étoiles d'une unité
 
@@ -196,6 +197,9 @@ export function compoParNiveau(boards, { carryId, plateau = [], traits = null } 
     out.push(x);
     avant = ids;
   }
+  // Le passage qui change le plus la compo (le premier en cas d'égalité), s'il change assez pour être signalé
+  const gros = out.slice(1).reduce((m, x) => (x.ajoute.length > (m ? m.ajoute.length : GROS_PASSAGE - 1) ? x : m), null);
+  if (gros) gros.grosPassage = true;
   return out;
 }
 
@@ -303,6 +307,22 @@ export function statsGlobalesNiveau(boards, L) {
     out[m + 'Pond'] = Math.round(((S + K_REPERE * MOYENNES[m]) / (W + K_REPERE)) * 1e4) / 1e4;
   }
   return out;
+}
+
+// Plateau réel d'une compo à un niveau, pour le classement par niveau : champions les plus joués par les plateaux finis à ce
+// niveau, ceux-là mêmes que comptent les statistiques de la ligne (à ne pas confondre avec compoParNiveau, qui donne le plateau conseillé).
+// Résultat : [{ id, etoiles }], L champions au plus, les plus joués d'abord.
+export function plateauObserve(boards, L) {
+  const l = boards.filter(b => b.lvl === L);
+  const par = new Map();
+  for (const b of l) for (const u of b.units || []) {
+    const x = par.get(u.id) || { id: u.id, w: 0, cout: u.cost, h: [0, 0, 0, 0, 0] };
+    if (!par.has(u.id)) par.set(u.id, x);
+    const w = poids(b);
+    x.h[Math.min(Math.max(u.star | 0, 0), 4)] += w;
+    x.w += w;
+  }
+  return [...par.values()].sort((a, b) => b.w - a.w || (b.cout || 0) - (a.cout || 0)).slice(0, L).map(x => ({ id: x.id, etoiles: medianeHisto(x.h) || 1 }));
 }
 
 // Une compo au niveau L (boards : tous ses plateaux). g : repères du niveau. kAvg : poids du retour à la moyenne du niveau.

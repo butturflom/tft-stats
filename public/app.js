@@ -246,14 +246,14 @@ function niveauxHtml(c, ov) {
   const pf = n.plafonds;
   const note = n.source === 'observe'
     ? `Observé : champions les plus joués par les ${int(n.n)} plateaux de cette compo finis au niveau ${n.niveau} (ceux du top 4 quand il y en a assez).`
-    : pf ? `Reconstitué depuis le niveau ${n.niveau + 1}, selon ce que la boutique propose au niveau ${n.niveau} : ${pf[3] ? `${pf[3]} champion${pf[3] > 1 ? 's' : ''} à 3 pièces ou plus` : 'aucun champion à 3 pièces'}${pf[4] ? ` (dont ${pf[4]} à 4 pièces ou plus)` : ''}, ${pf[2]} à 2 pièces ou plus.${n.synergies ? ' Parmi les champions de la compo, on garde ceux qui activent le plus de synergies, surtout celles du niveau 8, en vendant au plus un champion par niveau.' : ''} Les plateaux finis à ce niveau sont surtout ceux de joueurs éliminés tôt : ils ne servent pas de modèle.`
+    : pf ? `Reconstitué depuis le niveau ${n.niveau + 1}, selon ce que la boutique propose au niveau ${n.niveau} : ${pf[3] ? `${pf[3]} champion${pf[3] > 1 ? 's' : ''} à 3 pièces ou plus` : 'aucun champion à 3 pièces'}${pf[4] ? ` (dont ${pf[4]} à 4 pièces ou plus)` : ''}, ${pf[2]} à 2 pièces ou plus.${n.synergies ? ' Parmi les champions de la compo, on garde ceux qui activent le plus de synergies, surtout celles du niveau 8, en vendant le moins possible d\'un niveau à l\'autre.' : ''} Les plateaux finis à ce niveau sont surtout ceux de joueurs éliminés tôt : ils ne servent pas de modèle.`
     : `Reconstitué : seulement ${int(n.n)} plateau${n.n > 1 ? 'x' : ''} de cette compo finissent au niveau ${n.niveau}. On prend ses champions les plus joués.`;
   // Passage depuis le niveau précédent : champions à acheter et à vendre
   const nomsDe = ids => ids.map(id => esc((uIdx(id) || { nom: id }).nom)).join(', ');
   const ajoute = n.ajoute || [], retire = n.retire || [];
   const passage = n.niveau === lv[0].niveau || !n.ajoute ? ''
     : !ajoute.length && !retire.length ? `Niveau ${n.niveau - 1} → ${n.niveau} : rien à changer.`
-    : `Niveau ${n.niveau - 1} → ${n.niveau} : ${ajoute.length ? `achète ${nomsDe(ajoute)}` : ''}${ajoute.length && retire.length ? ' · ' : ''}${retire.length ? `vends ${nomsDe(retire)}` : ''}.${ajoute.length >= 3 ? ' C\'est le passage qui change le plus la compo : on dépense souvent son or à ce niveau pour trouver les champions chers.' : ''}`;
+    : `Niveau ${n.niveau - 1} → ${n.niveau} : ${ajoute.length ? `achète ${nomsDe(ajoute)}` : ''}${ajoute.length && retire.length ? ' · ' : ''}${retire.length ? `vends ${nomsDe(retire)}` : ''}.${n.grosPassage ? ' C\'est le passage qui change le plus cette compo : on dépense souvent son or à ce moment pour trouver les champions chers.' : ''}`;
   // Traits actifs (traits du client LoL) : nombre de champions, et ce qu'il faut pour le palier suivant
   const syn = (n.synergies || []).map(s => `<span class="syn" title="${esc(s.prochain ? `${s.n} champions · palier suivant à ${s.prochain}` : `${s.n} champions · palier maximum`)}">${esc(s.nom || s.id)} <b>${s.n}</b></span>`).join('');
   const board = ov
@@ -555,12 +555,12 @@ function renderCompos() {
 // Tris du classement par niveau (sur les chiffres de la compo à ce niveau) ; par défaut la borne basse du top 4, qui ne fait pas passer
 // devant une compo éprouvée une compo vue sur trois plateaux
 const NIV_TRI = { top4Low: [s => s.top4Low, -1], top1Low: [s => s.top1Low, -1], avgAdj: [s => s.avgAdj, 1], top1Adj: [s => s.top1Adj, -1], top4Adj: [s => s.top4Adj ?? s.top4, -1], atteint: [s => s.atteint, -1], bas: [s => s.bas, 1], n: [s => s.n, -1] };
-// Champions de la compo au niveau choisi (les mêmes que dans « Construire la compo par niveau »), sans les objets
-function compoAuNiveau(c, niveau) {
-  const n = (c.niveaux || []).find(x => x.niveau === niveau);
-  if (!n) return esc(c.nom);
-  const tri = n.unites.slice().sort((a, b) => ((uIdx(a.id) || {}).cout || 0) - ((uIdx(b.id) || {}).cout || 0));
-  return boardHtml(tri.map(u => ({ id: u.id, etoiles: u.etoiles, objets: [] }))) + (n.source === 'estime' ? '<small class="muted">composition reconstituée</small>' : '');
+// Champions les plus joués par les plateaux que compte la ligne (finis à ce niveau), sans les objets. Ce n'est pas le plateau conseillé
+// de « Construire la compo par niveau », qui est reconstitué sous le niveau 8.
+function compoAuNiveau(c, s) {
+  if (!s.unites || !s.unites.length) return esc(c.nom);
+  const tri = s.unites.slice().sort((a, b) => ((uIdx(a.id) || {}).cout || 0) - ((uIdx(b.id) || {}).cout || 0));
+  return boardHtml(tri.map(u => ({ id: u.id, etoiles: u.etoiles, objets: [] })));
 }
 // Une ligne du classement : le tableau est construit par pages, comme la liste des compos
 function ligneNiveau({ c, s }, i) {
@@ -571,7 +571,7 @@ function ligneNiveau({ c, s }, i) {
   const titreRep = rep.length ? `Places 1 à 8 : ${rep.map(k => pct(k / s.n, 0)).join(' · ')}. Écart-type ${f2(s.sigma)} (plus il est bas, plus la compo est régulière).` : '';
   const barres = rep.length ? `<span class="rep" role="img" aria-label="${esc(titreRep)}" title="${esc(titreRep)}">${rep.map((k, j) => `<i class="${j < 4 ? 'rp-haut' : j < 6 ? 'rp-mid' : 'rp-bas'}" style="height:${Math.max(k ? 8 : 2, Math.round(100 * k / max))}%"></i>`).join('')}</span><small class="muted">7-8 : <b class="${g && s.bas > g.bas + 0.03 ? 'bad' : g && s.bas < g.bas - 0.03 ? 'good' : ''}">${pct(s.bas, 0)}</b></small>` : '';
   const titreAtt = `${int(s.nAtteint)} des ${int(c.n)} plateaux de cette compo finissent au niveau ${UI.nl} ou plus${g && g.atteint != null ? ` (tous les plateaux : ${pct(g.atteint, 0)})` : ''}. Chez eux, le top 4 est de ${pct(s.top4Atteint, 0)}.`;
-  return `<tr><td class="n">${i + 1}</td><td class="cpl" title="${esc(c.nom)}">${compoAuNiveau(c, UI.nl)}</td>`
+  return `<tr><td class="n">${i + 1}</td><td class="cpl" title="${esc(c.nom)}">${compoAuNiveau(c, s)}</td>`
     + `<td class="n">${int(s.n)}<small class="muted">${pct(s.n / g.plateaux)} du niveau</small></td>`
     + `<td class="n">${pct(s.top1Adj)}<small class="muted" title="Borne basse à 95 % : la compo fait au moins ça, avec ce nombre de plateaux">≥ ${pct(s.top1Low, 0)}</small></td>`
     + `<td class="n">${pct(s.top4Adj ?? s.top4, 0)}<small class="muted" title="Borne basse à 95 % : la compo fait au moins ça, avec ce nombre de plateaux">≥ ${pct(s.top4Low, 0)}</small></td>`
