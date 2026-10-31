@@ -1,5 +1,5 @@
 // Augments, objets et rôle de chaque champion, plateau type de chaque compo et index des champions et des objets.
-import { compoParNiveau } from '../niveaux.mjs';
+import { compoParNiveau, NIVEAU_OBSERVE } from '../niveaux.mjs';
 import { r2, summarize, poids } from './outils.mjs';
 
 // Statistiques des augments (de tous les plateaux, et des tiens : ajoutés à « moi »)
@@ -25,6 +25,13 @@ export function plateauxEtIndex({ comps, groups, boards, names, T = id => id, I,
     if (!unitGlobal.has(u.id)) unitGlobal.set(u.id, { n: 0, nP: 0, held: 0, c: {}, cost: u.cost });
     const o = unitGlobal.get(u.id), x = poids(b); o.n++; o.nP += x;
     if (u.items.length >= 2) { o.held += x; for (const it of new Set(u.items)) if (!isComponent(it)) o.c[it] = (o.c[it] || 0) + x; }
+  }
+  // Objets portés par chaque champion sur les plateaux finis au niveau 8 ou plus : choisit qui garde les objets d'un porteur pas encore arrivé
+  const affinites = {};
+  for (const b of boards) if (b.lvl >= NIVEAU_OBSERVE) for (const u of b.units) {
+    const a = affinites[u.id] || (affinites[u.id] = { n: 0, c: {} }), x = poids(b);
+    a.n += x;
+    for (const it of new Set(u.items)) if (!isComponent(it)) a.c[it] = (a.c[it] || 0) + x;
   }
   const topOf = c => Object.entries(c).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k]) => k);
   const usedItems = new Set();
@@ -58,7 +65,7 @@ export function plateauxEtIndex({ comps, groups, boards, names, T = id => id, I,
     c.plateau = [...units].sort((a, b) => b.porteur - a.porteur).map(u => ({ id: u.id, etoiles: u.etoiles, objets: u.objets }));
     // Composition à chaque niveau du joueur (4 à 10), pour monter la compo pas à pas
     // Traits du client LoL (data/traits-client.json) : choix des petits niveaux selon les synergies, et traits actifs nommés
-    c.niveaux = compoParNiveau(list, { carryId: c.carryId, plateau: c.plateau, traits: traitsClient });
+    c.niveaux = compoParNiveau(list, { carryId: c.carryId, plateau: c.plateau, traits: traitsClient, affinites });
     for (const n of c.niveaux) for (const s of n.synergies || []) s.nom = T(s.id);
   }
   // Index des champions et des objets (pour composer un plateau depuis n'importe quelle liste)

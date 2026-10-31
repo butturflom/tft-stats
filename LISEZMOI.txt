@@ -41,9 +41,13 @@ Onglets
 - Mes compos     : les compos qui marchent dans tes lobbys, avec noyau, objets,
                    contestation, bascules et duels. « Construire la compo par niveau » :
                    la compo du niveau 4 au niveau 10, et un bouton pour copier son code
-                   d'équipe (à coller dans le planificateur d'équipe de TFT).
+                   d'équipe (à coller dans le planificateur d'équipe de TFT). Chaque niveau dit quoi
+                   acheter et vendre, et quels objets poser. Si le carry n'est pas encore là, un autre
+                   champion garde ses objets : l'appli dit lequel, et quand les lui rendre.
+                   Sous le niveau 8, ces plateaux sont reconstitués : Riot ne donne que la fin de partie.
 - Classement par niveau : les compos classées niveau par niveau (4 à 10), sur les plateaux
-                   qui ont fini à ce niveau. À niveau égal, la comparaison est juste ;
+                   qui ont fini à ce niveau, avec les champions de ces plateaux (ce n'est pas le
+                   plateau conseillé de « Construire la compo »). À niveau égal, la comparaison est juste ;
                    « Écart » = de combien la compo fait mieux (-) ou moins bien (+) que la moyenne.
                    Tri par défaut : borne basse du top 4 (une compo vue sur peu de parties ne passe pas
                    devant une compo éprouvée). « Atteint » = part des parties de la compo qui finissent

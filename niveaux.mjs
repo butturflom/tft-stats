@@ -25,6 +25,15 @@ const MIN_PART = 0.05;                             // part des plateaux qui joue
 const POIDS_TRAIT = 0.3;                           // palier d'un trait absent du niveau 8
 const POIDS_TRAIT_FINAL = 0.6;                     // palier d'un trait actif au niveau 8
 const COUT_VENTE = 0.6;
+// Objets finis à poser à chaque niveau : un repère, pas une mesure. Riot ne donne que le plateau de fin de partie, et ceux qui finissent
+// au niveau 6 ou 7 sont souvent éliminés tard (manche 25 en moyenne au niveau 6, avec 8 objets), bien après le moment où on atteint ce niveau.
+export const OBJETS_PAR_NIVEAU = { 4: 1, 5: 2, 6: 3, 7: 4 };
+// Ordre de pose : [rang du porteur, rang de l'objet]. Répartition la plus fréquente sur les vrais plateaux finis aux niveaux 5 à 7, selon le
+// nombre d'objets : 2 sur le même (51 %), 2+1 (71 %), 3+1 (39 %), 3+2 (45 %), 3+2+1 (56 %).
+const ORDRE_OBJETS = [[0, 0], [0, 1], [1, 0], [0, 2], [1, 1], [2, 0]];
+// Emblèmes, artefacts, objets de la lumière et couronnes dépendent d'un tirage (Spatule, augment) : on ne les planifie pas avant le niveau 8
+const objetPlanifiable = id => !/Emblem|Artifact|Radiant|TacticiansCrown|TacticiansCape|TacticiansShield/i.test(id);
+const BONUS_GARDIEN = 0.3;                         // préférence pour un gardien qui reste jusqu'à l'arrivée du porteur et part à ce moment (moitié pour chaque condition), à comparer à l'affinité
 const GROS_PASSAGE = 3;                            // champions achetés d'un coup à partir desquels le plus gros passage d'une compo est signalé
 const MAX_CANDIDATS = 25;                          // champions de la compo essayés en remplacement (les plus importants)
 const MIN_ETOILES = 3;                             // plateaux voisins nécessaires pour lire les étoiles d'une unité
@@ -47,10 +56,12 @@ const ajouterHisto = (a, b) => { for (let e = 0; e < b.length; e++) a[e] += b[e]
 // boards : plateaux de la compo ({ lvl, p, units: [{ id, star, items, cost }] }).
 // plateau : unités porteuses d'objets de la compo ({ id, objets }), pour les objets affichés.
 // traits : traits des champions et paliers des traits lus dans le client LoL (lireTraitsClient), ou null.
-// Résultat : [{ niveau, source: 'observe' | 'estime', n, unites: [{ id, etoiles, objets }], ajoute, retire, plafonds?, synergies? }]
+// affinites : objets portés par chaque champion en fin de partie, { champion: { n, c: { objet: poids } } } : choisit qui garde les objets d'un porteur absent.
+// Résultat : [{ niveau, source: 'observe' | 'estime', n, unites: [{ id, etoiles, objets, pour? }], ajoute, retire, plafonds?, synergies?, objetsRepere?, transferts? }]
+// pour : porteur final dont ce champion garde les objets en attendant son arrivée. transferts : [{ de, vers, pour, objets }], objets à déplacer en arrivant à ce niveau.
 // ajoute et retire : champions à acheter et à vendre en arrivant à ce niveau depuis le précédent (vides au niveau 4).
 // synergies (si traits) : traits actifs du plateau, [{ id, n, palier, prochain }] (palier = nombre de paliers atteints).
-export function compoParNiveau(boards, { carryId, plateau = [], traits = null } = {}) {
+export function compoParNiveau(boards, { carryId, plateau = [], traits = null, affinites = null } = {}) {
   const cout = new Map();
   for (const b of boards) for (const u of b.units) cout.set(u.id, u.cost);
   const coutDe = id => Math.min(Math.max(cout.get(id) || 1, 1), 5);
@@ -65,7 +76,6 @@ export function compoParNiveau(boards, { carryId, plateau = [], traits = null } 
       h[e] += v;
     }
   }
-  const objetsDe = new Map(plateau.map(u => [u.id, u.objets || []]));
   // Plateaux de référence : ceux qui ont fini dans le top 4, s'il y en a assez
   const bons = l => { const t = l.filter(b => b.p >= 1 && b.p <= 4); return t.length >= MIN_OBSERVE ? t : l; };
   // Part des plateaux de la liste qui jouent chaque champion
@@ -170,10 +180,60 @@ export function compoParNiveau(boards, { carryId, plateau = [], traits = null } 
     }
   }
 
+  // ---- Objets : ceux du plateau final, posés peu à peu. Tant qu'un porteur final n'est pas sur le plateau, un autre champion garde ses objets.
+  const porteursFinaux = plateau.filter(u => u.objets && u.objets.length).sort((a, b) => (b.id === carryId) - (a.id === carryId));
+  const estPorteurFinal = new Set(porteursFinaux.map(u => u.id));
+  // Part des plateaux où ce champion porte ces objets en fin de partie (retrouve le vrai porteur dans 67 % des cas aux niveaux 5 à 7, contre 15 % au hasard)
+  const affinite = (id, objets) => {
+    const a = affinites && affinites[id];
+    return a && a.n > 0 ? objets.reduce((s, it) => s + (a.c[it] || 0) / a.n, 0) : 0;
+  };
+  // Un bon gardien reste sur le plateau jusqu'à l'arrivée du porteur et part à ce moment : le vendre rend les objets sans perdre un champion utile
+  const bonusGardien = (id, L, f) => {
+    const arrivee = NIVEAUX.find(x => x >= L && choix.get(x).ids.includes(f.id));
+    if (arrivee === undefined) return 0;
+    const reste = NIVEAUX.every(x => x < L || x >= arrivee || choix.get(x).ids.includes(id));
+    return (reste ? BONUS_GARDIEN / 2 : 0) + (choix.get(arrivee).ids.includes(id) ? 0 : BONUS_GARDIEN / 2);
+  };
+  const gardiens = new Map();   // porteur final → { id, objets } : qui a ses objets en ce moment
+  function placerObjets(L, ids) {
+    const parts = new Map();
+    if (L >= NIVEAU_OBSERVE) for (const f of porteursFinaux) parts.set(f, f.objets);
+    else {
+      let reste = OBJETS_PAR_NIVEAU[L];
+      const avecObjets = porteursFinaux.filter(f => f.objets.some(objetPlanifiable));
+      for (const [h, o] of ORDRE_OBJETS) {
+        const f = avecObjets[h], it = f && f.objets.filter(objetPlanifiable)[o];
+        if (!reste || !it) continue;
+        parts.set(f, [...(parts.get(f) || []), it]);
+        reste--;
+      }
+    }
+    const places = new Map(), transferts = [];
+    const pris = new Set(), libre = id => !pris.has(id) && !estPorteurFinal.has(id);
+    for (const f of porteursFinaux) if (ids.includes(f.id)) pris.add(f.id);
+    for (const [f, objets] of parts) {
+      const ancien = gardiens.get(f.id);
+      let qui = ids.includes(f.id) ? f.id : null;
+      // Absent, et le plateau n'est pas encore final : on garde le même gardien s'il reste, sinon le champion le plus habitué à ces objets
+      if (!qui && L < NIVEAU_OBSERVE) {
+        qui = ancien && ids.includes(ancien.id) && libre(ancien.id) ? ancien.id
+          : ids.filter(libre).map(id => [id, affinite(id, f.objets) + bonusGardien(id, L, f)]).sort(([a, va], [b, vb]) => vb - va || (imp.get(b) || 0) - (imp.get(a) || 0) || coutDe(a) - coutDe(b))[0]?.[0] || null;
+      }
+      if (!qui) continue;
+      pris.add(qui);
+      places.set(qui, { objets, pour: qui === f.id ? null : f.id });
+      if (ancien && ancien.id !== qui) transferts.push({ de: ancien.id, vers: qui, pour: f.id, objets: ancien.objets });
+      gardiens.set(f.id, { id: qui, objets });
+    }
+    return { places, transferts };
+  }
+
   const out = [];
   let avant = null;
   for (const L of NIVEAUX) {
     const { ids, source, n } = choix.get(L);
+    const { places, transferts } = placerObjets(L, ids);
     const unites = ids.map(id => {
       const parNiveau = histo.get(id) || new Map(), parNiveauP = histoP.get(id) || new Map();
       const proches = [0, 0, 0, 0, 0], toutes = [0, 0, 0, 0, 0], prochesP = [0, 0, 0, 0, 0], toutesP = [0, 0, 0, 0, 0];
@@ -181,10 +241,8 @@ export function compoParNiveau(boards, { carryId, plateau = [], traits = null } 
       let etoiles = proches.reduce((a, c) => a + c, 0) >= MIN_ETOILES ? medianeHisto(prochesP) : medianeHisto(toutesP) || 1;
       // Un niveau reconstitué ne montre pas d'étoiles qu'un joueur n'a pas encore les moyens d'avoir
       if (source === 'estime') etoiles = Math.min(etoiles, etoilesMax(coutDe(id), L));
-      // Objets : ceux de la compo finale, sur le carry dès le niveau 6 et sur les autres porteurs dès le niveau 7
-      const porteur = objetsDe.get(id) || [];
-      const objets = (id === carryId ? L >= 6 : L >= 7) ? porteur : [];
-      return { id, etoiles, objets };
+      const p = places.get(id);
+      return p && p.pour ? { id, etoiles, objets: p.objets, pour: p.pour } : { id, etoiles, objets: p ? p.objets : [] };
     });
     // Porteurs d'objets en premier, comme le plateau de fin de partie
     unites.sort((a, b) => b.objets.length - a.objets.length || (cout.get(b.id) || 0) - (cout.get(a.id) || 0));
@@ -194,6 +252,8 @@ export function compoParNiveau(boards, { carryId, plateau = [], traits = null } 
     const x = { niveau: L, source, n, unites, ajoute, retire };
     if (L < NIVEAU_OBSERVE) x.plafonds = plafondsCout(L);   // plafonds de coût appliqués, pour l'expliquer dans l'interface
     if (tc) x.synergies = synergies(ids);
+    if (L < NIVEAU_OBSERVE) x.objetsRepere = OBJETS_PAR_NIVEAU[L];
+    if (transferts.length) x.transferts = transferts;
     out.push(x);
     avant = ids;
   }

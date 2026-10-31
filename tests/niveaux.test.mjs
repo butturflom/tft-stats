@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { compoParNiveau, plateauObserve, codeEquipe, lirePlanners, lireTraitsClient, codesDesCompos, NIVEAUX, MIN_OBSERVE, NIVEAU_OBSERVE, plafondsCout, wilsonLow, statsGlobalesNiveau, statsParNiveau } from '../niveaux.mjs';
+import { compoParNiveau, plateauObserve, codeEquipe, lirePlanners, lireTraitsClient, codesDesCompos, NIVEAUX, MIN_OBSERVE, NIVEAU_OBSERVE, OBJETS_PAR_NIVEAU, plafondsCout, wilsonLow, statsGlobalesNiveau, statsParNiveau } from '../niveaux.mjs';
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tft-niv-'));
 process.env.TFT_DATA = dir;
@@ -50,14 +50,87 @@ test('reconstitution : les champions chers ne sont pas proposés aux petits nive
   assert.ok(ids(4).includes('U1'));
 });
 
-test('objets : sur le carry dès le niveau 6, sur les autres porteurs dès le niveau 7, jamais avant', () => {
+test('objets : complets dès le niveau 8, sur les porteurs finaux présents, porteurs en premier', () => {
   const carry = n => parNiveau(n).unites.find(u => u.id === 'CARRY');
   assert.deepEqual(carry(10).objets, ['A', 'B', 'C']);
+  assert.equal(carry(10).pour, undefined);
   assert.equal(parNiveau(10).unites[0].id, 'CARRY');   // porteurs d'objets en premier
   assert.deepEqual(parNiveau(9).unites.find(u => u.id === 'U9').objets, ['D']);
-  assert.deepEqual(parNiveau(7).unites.find(u => u.id === 'U9'), undefined);
-  assert.equal(parNiveau(5).unites.every(u => u.objets.length === 0), true);
-  assert.equal(parNiveau(9).unites[0].id, 'U9');   // porteurs d'objets en premier
+  assert.equal(parNiveau(9).unites[0].id, 'U9');
+});
+
+// Compo dont le carry à 5 pièces n'arrive qu'au niveau 8 : qui garde ses objets avant ?
+const plateauxGarde = Array.from({ length: MIN_OBSERVE }, () => ({ lvl: 8, p: 1, units: [['CARRY', 5], ['TANK', 4], ['AD', 1], ['AP', 1], ['X1', 1], ['X2', 1], ['X3', 2], ['X4', 2]].map(([id, cost]) => ({ id, star: 2, items: [], cost })) }));
+const PLATEAU_GARDE = [{ id: 'CARRY', objets: ['LAME', 'ARC', 'DAGUE'] }, { id: 'TANK', objets: ['COTTE', 'CEINTURE'] }, { id: 'AD', objets: [] }];
+const AFFINITES = { AP: { n: 10, c: { BATON: 9 } }, X1: { n: 10, c: { LAME: 7, ARC: 6 } }, X2: { n: 10, c: { COTTE: 8, CEINTURE: 8 } }, X3: { n: 10, c: { LAME: 1 } } };
+const garde = compoParNiveau(plateauxGarde, { carryId: 'CARRY', plateau: PLATEAU_GARDE, affinites: AFFINITES });
+const niv = L => garde.find(x => x.niveau === L);
+const uni = (L, id) => niv(L).unites.find(u => u.id === id);
+
+test('objets : à chaque niveau, le repère d\'objets finis, posés dans l\'ordre mesuré', () => {
+  for (const L of [4, 5, 6, 7]) {
+    assert.equal(niv(L).unites.reduce((s, u) => s + u.objets.length, 0), OBJETS_PAR_NIVEAU[L], `niveau ${L}`);
+    assert.equal(niv(L).objetsRepere, OBJETS_PAR_NIVEAU[L]);
+  }
+  assert.deepEqual(uni(4, 'X1').objets, ['LAME']);
+  assert.deepEqual(uni(5, 'X1').objets, ['LAME', 'ARC']);
+  assert.deepEqual(uni(7, 'X1').objets, ['LAME', 'ARC', 'DAGUE']);
+  assert.equal(niv(8).objetsRepere, undefined);
+});
+
+test('objets : un porteur absent est remplacé par le champion le plus habitué à ces objets, jamais par un autre porteur final', () => {
+  assert.equal(uni(4, 'X1').pour, 'CARRY');          // X1 porte le plus souvent ces objets en fin de partie
+  assert.ok(uni(6, 'X2').objets.includes('COTTE'));  // le tank absent : X2, habitué aux objets de tank
+  assert.equal(uni(6, 'X2').pour, 'TANK');
+  assert.ok(!uni(6, 'AP') || uni(6, 'AP').objets.length === 0);
+});
+
+test('objets : le gardien reste tant qu\'il est sur le plateau, puis le transfert est annoncé à l\'arrivée du porteur', () => {
+  for (const L of [5, 6]) assert.equal(niv(L).transferts, undefined, `niveau ${L}`);
+  // Le tank à 4 pièces arrive au niveau 7 : le gardien lui rend ce qu'il a
+  assert.deepEqual(niv(7).transferts, [{ de: 'X2', vers: 'TANK', pour: 'TANK', objets: ['COTTE'] }]);
+  assert.equal(uni(7, 'TANK').pour, undefined);
+  assert.deepEqual(uni(8, 'CARRY').objets, ['LAME', 'ARC', 'DAGUE']);
+  assert.equal(uni(8, 'X1').objets.length, 0);
+  const t = niv(8).transferts.find(x => x.pour === 'CARRY');
+  assert.equal(t.de, 'X1');
+  assert.equal(t.vers, 'CARRY');
+  assert.deepEqual(t.objets, ['LAME', 'ARC', 'DAGUE']);
+});
+
+test('objets : le gardien vendu en arrivant au niveau 8 figure dans le transfert et dans les ventes', () => {
+  // Plateau final tout en 4 et 5 pièces : les petits niveaux prennent des remplaçants rares, vendus au niveau 8
+  const cher = [['CARRY', 5], ['C1', 4], ['C2', 4], ['C3', 4], ['C4', 4], ['C5', 4], ['C6', 4], ['C7', 4]];
+  const b = Array.from({ length: 40 }, (_, i) => ({ lvl: 8, p: 1, units: [...cher, ...(i < 4 ? [['R1', 1], ['R2', 1], ['R3', 1], ['R4', 1], ['R5', 1], ['R6', 1]] : [])].map(([id, cost]) => ({ id, star: 1, items: [], cost })) }));
+  const r = compoParNiveau(b, { carryId: 'CARRY', plateau: [{ id: 'CARRY', objets: ['LAME'] }], affinites: { R3: { n: 10, c: { LAME: 8 } } } });
+  assert.equal(r.find(x => x.niveau === 4).unites.find(u => u.objets.length).id, 'R3');
+  const n8 = r.find(x => x.niveau === 8);
+  assert.deepEqual(n8.transferts, [{ de: 'R3', vers: 'CARRY', pour: 'CARRY', objets: ['LAME'] }]);
+  assert.ok(n8.retire.includes('R3'));
+});
+
+test('objets : emblèmes et artefacts jamais planifiés avant le niveau 8', () => {
+  const r = compoParNiveau(plateauxGarde, { carryId: 'CARRY', plateau: [{ id: 'CARRY', objets: ['DA_18_EmblemInvoker', 'DA_Artifact_X', 'LAME'] }, { id: 'TANK', objets: ['DA_18_EmblemFort', 'COTTE'] }], affinites: AFFINITES });
+  const objets = L => r.find(x => x.niveau === L).unites.flatMap(u => u.objets);
+  assert.deepEqual(objets(4), ['LAME']);
+  assert.deepEqual(objets(7).sort(), ['COTTE', 'LAME']);   // moins d'objets que le repère : il n'y en a pas d'autres à planifier
+  assert.ok(objets(8).includes('DA_18_EmblemInvoker'));    // le plateau final reste complet
+});
+
+test('objets : à affinité égale, un gardien qui part à l\'arrivée du porteur passe devant un champion qui reste', () => {
+  const b = Array.from({ length: 40 }, (_, i) => ({ lvl: 8, p: 1, units: [['CARRY', 5], ['RESTE', 1], ['C1', 4], ['C2', 4], ['C3', 4], ['C4', 4], ['C5', 4], ['C6', 4], ...(i < 4 ? [['PART', 1], ['R2', 1], ['R3', 1], ['R4', 1], ['R5', 1]] : [])].map(([id, cost]) => ({ id, star: 1, items: [], cost })) }));
+  const affinites = { RESTE: { n: 10, c: { LAME: 5 } }, PART: { n: 10, c: { LAME: 5 } } };
+  const r = compoParNiveau(b, { carryId: 'CARRY', plateau: [{ id: 'CARRY', objets: ['LAME'] }], affinites });
+  assert.equal(r.find(x => x.niveau === 4).unites.find(u => u.objets.length).id, 'PART');
+  assert.ok(r.find(x => x.niveau === 8).retire.includes('PART'));
+  assert.ok(r.find(x => x.niveau === 8).unites.some(u => u.id === 'RESTE'));
+});
+
+test('objets : sans affinité, le champion le plus important ; sans porteur final, aucun objet', () => {
+  const sans = compoParNiveau(plateauxGarde, { carryId: 'CARRY', plateau: PLATEAU_GARDE });
+  assert.equal(sans.find(x => x.niveau === 4).unites.reduce((t, u) => t + u.objets.length, 0), 1);
+  const aucun = compoParNiveau(plateauxGarde, { carryId: 'CARRY' });
+  assert.ok(aucun.every(x => x.unites.every(u => u.objets.length === 0) && !x.transferts));
 });
 
 test('étoiles : lues sur les plateaux voisins, plafonnées quand il n\'y en a pas', () => {

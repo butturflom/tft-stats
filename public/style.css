@@ -406,6 +406,8 @@ a.ghost{display:inline-block;text-decoration:none;color:inherit}
 .ovbody .nivsyn{gap:3px;margin:4px 0 0}
 .ovbody .syn{border-radius:0;border-color:var(--hl);background:transparent;color:var(--hd);padding:0 6px;font-size:.7rem}
 .ovbody .syn b{color:var(--hc)}
+.nivgarde{margin:8px 0 0;font-size:.84rem;color:var(--muted)}
+.ovbody .nivgarde{margin:4px 0 0;font-size:.72rem;color:var(--hd)}
 .nivnote{margin:8px 0 6px}
 .nivcopy{align-items:center;gap:10px;margin-top:6px}
 .copie-etat{font-size:.78rem;color:var(--muted);font-family:var(--f-mono);overflow-wrap:anywhere}

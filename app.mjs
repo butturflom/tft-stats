@@ -536,7 +536,7 @@ server.listen(PORT, LOCAL, async () => {
     const imp = getMeta(ouvrir(), 'import');
     if (imp && Date.now() - Date.parse(imp.date) < 120000) log(`Base SQLite créée : ${imp.ajoutees} parties importées (${imp.doublons} doublons, ${imp.illisibles} lignes illisibles écartées). Ancien fichier gardé : data/${imp.renomme || 'parties.jsonl'}`);
   } catch {}
-  if (fmt < 18 && enStock > 0) {
+  if (fmt < 19 && enStock > 0) {
     state.running = true; await runAnalyse(); state.running = false; state.phase = 'idle'; broadcast();
   }
   const fresh = state.lastRun && Date.now() - new Date(state.lastRun).getTime() < 5 * 60000;

@@ -246,14 +246,21 @@ function niveauxHtml(c, ov) {
   const pf = n.plafonds;
   const note = n.source === 'observe'
     ? `Observé : champions les plus joués par les ${int(n.n)} plateaux de cette compo finis au niveau ${n.niveau} (ceux du top 4 quand il y en a assez).`
-    : pf ? `Reconstitué depuis le niveau ${n.niveau + 1}, selon ce que la boutique propose au niveau ${n.niveau} : ${pf[3] ? `${pf[3]} champion${pf[3] > 1 ? 's' : ''} à 3 pièces ou plus` : 'aucun champion à 3 pièces'}${pf[4] ? ` (dont ${pf[4]} à 4 pièces ou plus)` : ''}, ${pf[2]} à 2 pièces ou plus.${n.synergies ? ' Parmi les champions de la compo, on garde ceux qui activent le plus de synergies, surtout celles du niveau 8, en vendant le moins possible d\'un niveau à l\'autre.' : ''} Les plateaux finis à ce niveau sont surtout ceux de joueurs éliminés tôt : ils ne servent pas de modèle.`
+    : pf ? `Reconstitué depuis le niveau ${n.niveau + 1}, selon ce que la boutique propose au niveau ${n.niveau} : ${pf[3] ? `${pf[3]} champion${pf[3] > 1 ? 's' : ''} à 3 pièces ou plus` : 'aucun champion à 3 pièces'}${pf[4] ? ` (dont ${pf[4]} à 4 pièces ou plus)` : ''}, ${pf[2]} à 2 pièces ou plus.${n.objetsRepere ? ` Objets : repère de ${n.objetsRepere} objet${n.objetsRepere > 1 ? 's' : ''} fini${n.objetsRepere > 1 ? 's' : ''} à ce niveau, ceux du plateau final.` : ''}${n.synergies ? ' Parmi les champions de la compo, on garde ceux qui activent le plus de synergies, surtout celles du niveau 8, en vendant le moins possible d\'un niveau à l\'autre.' : ''} Les plateaux finis à ce niveau sont surtout ceux de joueurs éliminés tôt : ils ne servent pas de modèle.`
     : `Reconstitué : seulement ${int(n.n)} plateau${n.n > 1 ? 'x' : ''} de cette compo finissent au niveau ${n.niveau}. On prend ses champions les plus joués.`;
   // Passage depuis le niveau précédent : champions à acheter et à vendre
   const nomsDe = ids => ids.map(id => esc((uIdx(id) || { nom: id }).nom)).join(', ');
   const ajoute = n.ajoute || [], retire = n.retire || [];
+  // Objets à déplacer en arrivant à ce niveau : vendre un champion rend ses objets
+  const retireSet = new Set(retire);
+  const deNom = id => { const x = nomsDe([id]); return (/^[aeiouyhàâéèêîïôû]/i.test(x) ? 'd\'' : 'de ') + x; };
+  const transferts = (n.transferts || []).map(t => ` Objets ${deNom(t.de)} à mettre sur ${nomsDe([t.vers])} : ${retireSet.has(t.de) ? 'vendre ce champion les rend' : 'vends ce champion (rachète-le s\'il reste utile) ou utilise un outil qui retire les objets'}.`).join('');
+  // Porteurs provisoires : ils gardent les objets d'un champion pas encore sur le plateau
+  const gardiens = n.unites.filter(u => u.pour).map(u => `${nomsDe([u.id])} garde les objets ${deNom(u.pour)} en attendant son arrivée.`).join(' ');
   const passage = n.niveau === lv[0].niveau || !n.ajoute ? ''
     : !ajoute.length && !retire.length ? `Niveau ${n.niveau - 1} → ${n.niveau} : rien à changer.`
     : `Niveau ${n.niveau - 1} → ${n.niveau} : ${ajoute.length ? `achète ${nomsDe(ajoute)}` : ''}${ajoute.length && retire.length ? ' · ' : ''}${retire.length ? `vends ${nomsDe(retire)}` : ''}.${n.grosPassage ? ' C\'est le passage qui change le plus cette compo : on dépense souvent son or à ce moment pour trouver les champions chers.' : ''}`;
+  const passageComplet = passage + (passage ? transferts : '');
   // Traits actifs (traits du client LoL) : nombre de champions, et ce qu'il faut pour le palier suivant
   const syn = (n.synergies || []).map(s => `<span class="syn" title="${esc(s.prochain ? `${s.n} champions · palier suivant à ${s.prochain}` : `${s.n} champions · palier maximum`)}">${esc(s.nom || s.id)} <b>${s.n}</b></span>`).join('');
   const board = ov
@@ -263,7 +270,8 @@ function niveauxHtml(c, ov) {
     <div class="nivbar" role="tablist" aria-label="Niveau du joueur">${lv.map(x => `<button type="button" role="tab" class="niv${x.niveau === cur ? ' on' : ''}${x.source === 'estime' ? ' est' : ''}" aria-selected="${x.niveau === cur}" data-niv="${x.niveau}" data-niv-cle="${esc(c.cle)}" title="${x.source === 'observe' ? 'Observé' : 'Reconstitué'} · niveau ${x.niveau}">${ov ? '' : 'Niveau '}${x.niveau}</button>`).join('')}</div>
     ${board}
     ${syn ? `<div class="nivsyn${ov ? ' ovtxt' : ''}" aria-label="Synergies actives">${syn}</div>` : ''}
-    ${passage ? `<p class="nivpassage${ov ? ' ovtxt' : ''}">${passage}</p>` : ''}
+    ${gardiens ? `<p class="nivgarde${ov ? ' ovtxt' : ''}">${gardiens}</p>` : ''}
+    ${passageComplet ? `<p class="nivpassage${ov ? ' ovtxt' : ''}">${passageComplet}</p>` : ''}
     <p class="nivnote ${ov ? 'ovtxt' : 'muted'}"><small>${esc(note)}</small></p>
     <div class="row nivcopy">${copieBtn(c, cur, ov)}<span class="copie-etat" aria-live="polite"></span></div>
   </div>`;
