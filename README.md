@@ -47,12 +47,14 @@ Run `installer-electron.bat`, or `npm install` then `npx install-electron` (abou
 
 ## Data sources
 
-Only two sources are used:
+Match data comes only from these two sources:
 
 - **Riot Games API**: ranked matches, players, ranks and the lobby. Each user uses a personal key. Keys are never bundled with the code.
 - **Data Dragon**: Riot's official static data: champion, trait and item names and icons, and augment names and descriptions in French.
 
-No third-party website is used. The dashboard typefaces (Rajdhani, Figtree, JetBrains Mono, all under the SIL Open Font License) are bundled in `public/fonts/`, so opening the dashboard makes no request outside your PC.
+One third-party site is used, for item recipes only: **Community Dragon** (unofficial, not run by Riot), because Data Dragon has no recipes. The app downloads its TFT file once per Data Dragon version into `data/recettes.json`; nothing about you is sent, and a built-in table takes over if the site is unavailable. No statistic depends on it.
+
+The dashboard typefaces (Rajdhani, Figtree, JetBrains Mono, all under the SIL Open Font License) are bundled in `public/fonts/`, so the page itself loads nothing from outside your PC.
 
 ## Security
 

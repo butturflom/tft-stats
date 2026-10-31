@@ -5,8 +5,9 @@ Ce que fait l'appli
 - Collecte les parties classées TFT EUW via l'API officielle de Riot, calcule les
   statistiques par compo et les affiche dans un tableau de bord et une petite fenêtre
   (l'overlay) au-dessus du jeu.
-- Sources de données : l'API Riot et Data Dragon (ressource officielle de Riot), et rien
-  d'autre. Les sites tiers ne sont plus utilisés.
+- Sources de données : l'API Riot et Data Dragon (ressource officielle de Riot) pour les
+  parties et les noms. Un seul site tiers, Community Dragon (non officiel), pour les
+  recettes des objets : aucune statistique n'en dépend.
 
 Installation (une seule fois)
 1. Double-clique sur creer-raccourci.bat : un raccourci « TFT Stats » apparaît

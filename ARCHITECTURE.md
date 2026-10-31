@@ -8,7 +8,7 @@ Document de référence. Les parties 1 à 5 décrivent l'état **réel** du code
 
 Application locale pour Windows. Elle collecte les parties classées TFT (EUW) via l'API Riot, calcule des statistiques par composition et les affiche dans un tableau de bord et un overlay au-dessus du jeu.
 
-- **Périmètre des données** : API Riot et Data Dragon uniquement (voir §8).
+- **Périmètre des données** : API Riot et Data Dragon pour les parties, les statistiques et les noms ; client LoL local pour les données de jeu ; Community Dragon pour les seules recettes d'objets (voir §8).
 - **Runtime** : Node.js 22.13 ou plus (ESM, module intégré `node:sqlite`). Le cœur n'a **aucune dépendance npm** ; Electron, facultatif, est la seule dépendance, de développement (`devDependencies`).
 - **Serveur HTTP local** : `127.0.0.1:3777`.
 - **Interface** : HTML, CSS et JavaScript sans framework (`public/`).
@@ -332,7 +332,7 @@ Sous Electron, `/api/overlay` accepte toujours `forme` et `bouger` mais ne les t
 - **Electron** : phase 3, faite le 13/10/2026, en coque facultative (dépendance de développement). Le cœur reste en Node, sans réécriture ni dépendance.
 - **Dashboard et overlay dans la même application.**
 - **Cible : le ladder complet, avec filtres** (rangs, patch, set). Collecte du ladder complet et filtre par rang faits en phase 2 (§5, points 1 et 2).
-- **Sources de données : Riot API et Data Dragon uniquement** (décision du 13/10/2026). Tout autre site est retiré du code et des données (§8).
+- **Sources de données : Riot API et Data Dragon pour les parties et les statistiques** (décision du 13/10/2026). Tout autre site est retiré du code et des données, sauf Community Dragon pour les recettes d'objets (décision du 31/10/2026, §8).
 - **Stockage : SQLite** (phase 2, 13/10/2026), avec le module intégré `node:sqlite` : Node.js 22.13 au minimum, toujours sans dépendance npm.
 - **Pas d'accès à distance** (14/10/2026) : mode téléphone et code PIN retirés, le serveur n'écoute que sur ce PC.
 - **Aucune ressource externe dans l'interface** (14/10/2026) : polices hébergées dans `public/fonts/`, politique de sécurité sans hôte externe.
@@ -342,23 +342,24 @@ Sous Electron, `/api/overlay` accepte toujours `forme` et `bouger` mais ne les t
 **En attente**
 1. Langue du code et de la doc technique : anglais recommandé, interface en français avec i18n.
 2. Plateforme : Windows seul en v1 (lockfile LoL, overlay).
-3. Réintégrer une source tierce : seulement avec l'accord écrit de son éditeur, et sur décision de l'utilisateur.
+3. Réintégrer une autre source tierce : seulement avec l'accord écrit de son éditeur, et sur décision de l'utilisateur.
 
 ## 8. Sources de données
 
-**Décision (13/10/2026)** : seules l'API Riot et Data Dragon sont utilisées. Le reste est retiré.
+**Décision (13/10/2026)** : les parties et les statistiques ne viennent que de l'API Riot et de Data Dragon. **Exception (31/10/2026)** : l'utilisateur garde Community Dragon pour les recettes d'objets, que Data Dragon ne fournit pas ; l'usage est personnel et le site ne reçoit qu'une demande de téléchargement.
 
 | Source | Utilisation | Statut |
 |---|---|---|
 | Riot API | Parties, joueurs, rangs, lobby (scout) | Gardée. Chaque utilisateur met sa propre clé (BYOK), jamais embarquée |
 | Data Dragon | Noms et icônes (champions, traits, objets), noms et descriptions des augments en français | Gardée |
-| CommunityDragon | Référentiel du set | Retirée |
+| Client LoL (local) | Codes d'équipe, icônes, traits des champions et paliers, augments | Gardée |
+| Community Dragon | Recettes des objets (`recettes.mjs`) : fichier téléchargé une fois par version de Data Dragon, gardé dans `data/recettes.json` ; à défaut, table intégrée. Aucune statistique n'en dépend | Gardée pour cet usage seulement (31/10/2026) ; son référentiel du set reste retiré |
 | MetaTFT | Tier list, consensus de compos, augments conseillés | Retirée |
 | tactics.tools, SeeMeta | Consensus de compos (`sites.mjs`) | Retirées |
 | OP.GG, MetaSrc, Mobalytics | Relevé dans `public/sites.json` | Retirées |
 
 **Fonctions retirées avec elles** :
-- Onglets « Méta des sites » et « Mes objets ». Ce dernier reposait sur les recettes d'objets, que Data Dragon ne fournit pas (`tft-item.json` ne contient ni `from` ni `composition`).
+- Onglets « Méta des sites » et « Mes objets ». Ce dernier reposait sur les recettes d'objets, que Data Dragon ne fournit pas (`tft-item.json` ne contient ni `from` ni `composition`). Les recettes sont revenues (octobre 2026) dans les sections d'objets (`recettes.mjs`), sans l'onglet.
 - Augments conseillés par compo et tier list MetaTFT.
 - Déroulé de partie (plateaux de début de partie et niveaux de relance).
 - Vue hexagonale du plateau, remplacée par une liste d'unités.
