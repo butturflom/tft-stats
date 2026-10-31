@@ -3,8 +3,9 @@ import { loadEnv } from '../lib.mjs';
 import { validerParties } from '../valider.mjs';
 import { lireJournal, patchDe, releverVersion } from '../patchs.mjs';
 import { lireParties, rangsDesParties, getMeta, rangsCibles } from '../db.mjs';
-import { MIN_N, K_AVG, PRIOR, patchOf } from './outils.mjs';
+import { MIN_N, K_AVG, K_TOP1, K_TOP4, PRIOR, patchOf } from './outils.mjs';
 import { bloquer } from './qualite.mjs';
+import { affinerJournal } from './patch-contenu.mjs';
 
 // Lit les parties de la base, écarte les invalides et prépare le début du bilan de qualité
 export function chargerParties(db) {
@@ -22,7 +23,7 @@ export function chargerParties(db) {
     parties: { lues: verif.lues, illisibles, doublons: verif.doublons, invalides: verif.rejetees.length, retenues: 0 },
     motifs: verif.parRaison,
     exemples: verif.rejetees.slice(0, 20),
-    seuils: { minN: MIN_N, kAvg: K_AVG, prior: PRIOR },
+    seuils: { minN: MIN_N, kAvg: K_AVG, kTop1: K_TOP1, kTop4: K_TOP4, prior: PRIOR },
     import: getMeta(db, 'import'),
   };
   if (!recs.length) bloquer('aucune partie valide dans le fichier de parties', qualiteBase);
@@ -35,7 +36,7 @@ export async function choisirPatchEtSet(recs, { tous }) {
   // Le patch vient de la partie ; quand Riot ne le donne pas (depuis l'été 2026), du journal local des patchs (patchs.mjs),
   // pour les parties jouées depuis sa première entrée.
   await releverVersion();   // journal des patchs : note le changement de version de Data Dragon
-  const journal = lireJournal();
+  const journal = affinerJournal(recs, lireJournal());   // date de chaque patch vérifiée dans le contenu des parties
   for (const r of recs) { const p = patchOf(r.v); r.patchRiot = p !== '?'; r.patch = p !== '?' ? p : patchDe(r.t, journal) || '?'; }
   const toutes = recs;   // toutes les parties valides, pour la liste des patchs proposés
   let latestT = 0, patch = '?', patchRiot = false;
@@ -74,10 +75,9 @@ export async function choisirPatchEtSet(recs, { tous }) {
 }
 
 // Filtre par rang au moment de la partie (RANGS), et couverture des relevés de rang
-export function filtrerParRang(recs, db) {
+export function filtrerParRang(recs, db, rangsParties = rangsDesParties(db)) {
   // Rang de chaque partie au moment où elle a été jouée (relevés de rang des joueurs, voir db.mjs).
   // À défaut, le rang de la division où le joueur a été trouvé (« seed », moins fiable : rang du jour de la collecte).
-  const rangsParties = rangsDesParties(db);
   const SEED_RANG = /^(IRON|BRONZE|SILVER|GOLD|PLATINUM|EMERALD|DIAMOND|MASTER|GRANDMASTER|CHALLENGER) (I|II|III|IV)$/;
   const couverture = { releve: 0, approx: 0, seed: 0, inconnu: 0 };
   const rangDe = r => {

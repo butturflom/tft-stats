@@ -4,11 +4,14 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { trouverImage, DOSSIER_ICONES } from '../images.mjs';
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tft-img-'));
 process.env.TFT_DATA = dir;
+// Les modules de l'appli sont chargés APRÈS TFT_DATA : chargés avant, ils viseraient le vrai dossier data/
+// (ce test réécrivait alors data/team-planner.json avec ses codes factices, et les codes d'équipe disparaissaient)
+const { trouverImage, DOSSIER_ICONES } = await import('../images.mjs');
 const { majIcones, PLANNER } = await import('../lcu.mjs');
+if (!PLANNER.startsWith(dir)) throw new Error('Le test viserait le vrai dossier data/ : ' + PLANNER);
 after(() => fs.rmSync(dir, { recursive: true, force: true }));
 
 fs.writeFileSync(path.join(dir, 'noms.json'), JSON.stringify({ version: '16.20.1', unitImg: { DA_18_Ahri: 'TFT18_Ahri_splash_centered_1.TFT_Set18.png' } }));

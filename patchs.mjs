@@ -30,9 +30,15 @@ export function noterVersion(version, quand = Date.now(), dir = DATA) {
 }
 
 // Patch en vigueur à la date t : dernière entrée vue au plus tard à cette date, sinon null (partie d'avant le journal).
+// Une entrée peut porter une date retrouvée dans le contenu des parties (« debut », voir analyse/patch-contenu.mjs) : elle remplace
+// l'heure de relevé. Les parties jouées à moins de 10 min d'une date ainsi retrouvée sont de patch inconnu (null).
 export function patchDe(t, journal) {
   let patch = null;
-  for (const e of journal) { if (e.vu <= t) patch = e.patch; else break; }
+  for (const e of journal) {
+    const d = e.debut ?? e.vu;
+    if (e.source === 'contenu' && Math.abs(t - d) < 10 * 60e3) return null;
+    if (d <= t) patch = e.patch; else break;
+  }
   return patch;
 }
 

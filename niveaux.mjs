@@ -31,14 +31,16 @@ const MIN_ETOILES = 3;                             // plateaux voisins nécessai
 // Étoiles qu'on peut raisonnablement avoir à ce niveau, selon le coût du champion
 const etoilesMax = (cout, L) => cout <= 1 ? (L <= 5 ? 2 : 3) : cout === 2 ? (L <= 4 ? 1 : L <= 7 ? 2 : 3) : cout === 3 ? (L <= 6 ? 1 : L <= 9 ? 2 : 3) : cout === 4 ? (L <= 8 ? 1 : 2) : (L <= 9 ? 1 : 2);
 // Médiane (la plus basse des deux du milieu) d'un histogramme d'étoiles h[étoiles] = nombre de plateaux ; 0 s'il est vide
+// h peut être pondéré (poids fractionnaires) : on prend la première étoile qui atteint la moitié du poids total (même résultat qu'avant sur des comptes entiers)
 function medianeHisto(h) {
   const n = h.reduce((a, c) => a + c, 0);
-  if (!n) return 0;
-  const cible = Math.floor((n - 1) / 2);
+  if (!(n > 0)) return 0;
   let cumul = 0;
-  for (let e = 0; e < h.length; e++) { cumul += h[e]; if (cumul > cible) return e; }
+  for (let e = 0; e < h.length; e++) { cumul += h[e]; if (cumul >= n / 2 - 1e-9) return e; }
   return 0;
 }
+// Poids d'un plateau (analyse/ponderation.mjs) ; 1 quand il n'est pas pondéré
+const poids = b => (b.w === undefined ? 1 : b.w);
 const ajouterHisto = (a, b) => { for (let e = 0; e < b.length; e++) a[e] += b[e]; return a; };
 
 // boards : plateaux de la compo ({ lvl, p, units: [{ id, star, items, cost }] }).
@@ -52,11 +54,15 @@ export function compoParNiveau(boards, { carryId, plateau = [], traits = null } 
   for (const b of boards) for (const u of b.units) cout.set(u.id, u.cost);
   const coutDe = id => Math.min(Math.max(cout.get(id) || 1, 1), 5);
   // Étoiles de chaque champion, par niveau de plateau : lu une seule fois (histogramme), pas à chaque niveau demandé
-  const histo = new Map();
+  // histo : nombre de plateaux (seuil MIN_ETOILES) ; histoP : même chose pondérée (étoile médiane, plus proche du patch en cours)
+  const histo = new Map(), histoP = new Map();
   for (const b of boards) for (const u of b.units) {
-    let m = histo.get(u.id); if (!m) histo.set(u.id, m = new Map());
-    let h = m.get(b.lvl); if (!h) m.set(b.lvl, h = [0, 0, 0, 0, 0]);
-    h[Math.min(Math.max(u.star | 0, 0), 4)]++;
+    const e = Math.min(Math.max(u.star | 0, 0), 4);
+    for (const [H, v] of [[histo, 1], [histoP, poids(b)]]) {
+      let m = H.get(u.id); if (!m) H.set(u.id, m = new Map());
+      let h = m.get(b.lvl); if (!h) m.set(b.lvl, h = [0, 0, 0, 0, 0]);
+      h[e] += v;
+    }
   }
   const objetsDe = new Map(plateau.map(u => [u.id, u.objets || []]));
   // Plateaux de référence : ceux qui ont fini dans le top 4, s'il y en a assez
@@ -64,8 +70,9 @@ export function compoParNiveau(boards, { carryId, plateau = [], traits = null } 
   // Part des plateaux de la liste qui jouent chaque champion
   const frequences = l => {
     const f = new Map();
-    for (const b of l) for (const id of new Set(b.units.map(u => u.id))) f.set(id, (f.get(id) || 0) + 1);
-    for (const [id, c] of f) f.set(id, c / l.length);
+    let total = 0;
+    for (const b of l) { const w = poids(b); total += w; for (const id of new Set(b.units.map(u => u.id))) f.set(id, (f.get(id) || 0) + w); }
+    for (const [id, c] of f) f.set(id, c / total);
     return f;
   };
   // Importance d'un champion pour la compo : part des bons plateaux qui le jouent ; le carry passe devant tous les autres
@@ -167,10 +174,10 @@ export function compoParNiveau(boards, { carryId, plateau = [], traits = null } 
   for (const L of NIVEAUX) {
     const { ids, source, n } = choix.get(L);
     const unites = ids.map(id => {
-      const parNiveau = histo.get(id) || new Map();
-      const proches = [0, 0, 0, 0, 0], toutes = [0, 0, 0, 0, 0];
-      for (const [lvl, h] of parNiveau) { ajouterHisto(toutes, h); if (Math.abs(lvl - L) <= 1) ajouterHisto(proches, h); }
-      let etoiles = proches.reduce((a, c) => a + c, 0) >= MIN_ETOILES ? medianeHisto(proches) : medianeHisto(toutes) || 1;
+      const parNiveau = histo.get(id) || new Map(), parNiveauP = histoP.get(id) || new Map();
+      const proches = [0, 0, 0, 0, 0], toutes = [0, 0, 0, 0, 0], prochesP = [0, 0, 0, 0, 0], toutesP = [0, 0, 0, 0, 0];
+      for (const [lvl, h] of parNiveau) { ajouterHisto(toutes, h); ajouterHisto(toutesP, parNiveauP.get(lvl)); if (Math.abs(lvl - L) <= 1) { ajouterHisto(proches, h); ajouterHisto(prochesP, parNiveauP.get(lvl)); } }
+      let etoiles = proches.reduce((a, c) => a + c, 0) >= MIN_ETOILES ? medianeHisto(prochesP) : medianeHisto(toutesP) || 1;
       // Un niveau reconstitué ne montre pas d'étoiles qu'un joueur n'a pas encore les moyens d'avoir
       if (source === 'estime') etoiles = Math.min(etoiles, etoilesMax(coutDe(id), L));
       // Objets : ceux de la compo finale, sur le carry dès le niveau 6 et sur les autres porteurs dès le niveau 7
@@ -272,37 +279,81 @@ export function wilsonLow(k, n, z = 1.96) {
 }
 const compterPlaces = l => { const c = Array(8).fill(0); for (const b of l) if (b.p >= 1 && b.p <= 8) c[b.p - 1]++; return c; };
 
-// Repères de tous les plateaux qui ont fini au niveau L (la compo y est comparée), plus le taux d'atteinte moyen
+// Valeur d'une compo « au hasard » pour chaque mesure du classement (même définition que MESURES dans analyse/outils.mjs, qui importe ce fichier)
+const MOYENNES = { avg: 4.5, top1: 0.125, top4: 0.5 };
+const VALEURS = { avg: p => p, top1: p => (p === 1 ? 1 : 0), top4: p => (p <= 4 ? 1 : 0) };
+const K_REPERE = 20;   // poids de la valeur au hasard dans le repère pondéré d'un niveau (très peu de plateaux finissent aux niveaux 4 et 5)
+
+// Repères de tous les plateaux qui ont fini au niveau L (la compo y est comparée), plus le taux d'atteinte moyen.
+// avg, top1, top4 : chiffres de tous les plateaux, sans poids (affichés). avgPond, top1Pond, top4Pond : mêmes repères pondérés
+// (patch en cours, parties récentes) : valeur vers laquelle le score d'une compo à ce niveau est ramené (identiques sans poids).
 export function statsGlobalesNiveau(boards, L) {
   const l = boards.filter(b => b.lvl === L);
   if (!l.length) return null;
   const ge = boards.filter(b => b.lvl >= L);
-  return {
+  const out = {
     plateaux: l.length, avg: r2(l.reduce((t, b) => t + b.p, 0) / l.length),
     top1: r3(l.filter(b => b.p === 1).length / l.length), top4: r3(l.filter(b => b.p <= 4).length / l.length),
     bas: r3(l.filter(b => b.p >= 7).length / l.length),
     atteint: r3(ge.length / boards.length), top4Atteint: r3(ge.filter(b => b.p <= 4).length / ge.length),
   };
+  const W = l.reduce((t, b) => t + poids(b), 0);
+  for (const m of Object.keys(MOYENNES)) {
+    const S = l.reduce((t, b) => t + poids(b) * VALEURS[m](b.p), 0);
+    out[m + 'Pond'] = Math.round(((S + K_REPERE * MOYENNES[m]) / (W + K_REPERE)) * 1e4) / 1e4;
+  }
+  return out;
 }
 
 // Une compo au niveau L (boards : tous ses plateaux). g : repères du niveau. kAvg : poids du retour à la moyenne du niveau.
 // Renvoie null sans plateau fini à ce niveau.
-export function statsParNiveau(boards, L, g, kAvg, minPlateaux = 1) {
+// Sans opts : plateaux comptés pareil, retour à la moyenne du niveau (g.avg, g.top1) de poids kAvg.
+// Avec opts (analyse/compos.mjs), les scores suivent les mêmes règles que ceux des compos :
+//   - chaque plateau pèse b.w (patch en cours, parties récentes) ; n, avg, ci, top1, top4, rep, bas restent ceux de tous les plateaux, sans poids ;
+//   - K : { avg, top1, top4 } poids du retour à la moyenne de chaque mesure ;
+//   - ancre(mesure, W, S) : valeur vers laquelle ramener (moyenne du niveau corrigée des compos voisines), sinon le repère pondéré du niveau ;
+//   - les bornes basses (top1Low, top4Low) utilisent le nombre de plateaux « équivalents » (Kish) : des plateaux pondérés informent moins que des plateaux entiers.
+export function statsParNiveau(boards, L, g, kAvg, minPlateaux = 1, opts = null) {
   const l = boards.filter(b => b.lvl === L);
   if (!g || l.length < minPlateaux || !l.length) return null;
   const n = l.length, sum = l.reduce((t, b) => t + b.p, 0), w = l.filter(b => b.p === 1).length, t4 = l.filter(b => b.p <= 4).length;
   const sd = Math.sqrt(Math.max(0, l.reduce((t, b) => t + b.p * b.p, 0) / n - (sum / n) ** 2));
-  const avgAdj = (sum + kAvg * g.avg) / (n + kAvg);
   const rep = compterPlaces(l);
   const ge = boards.filter(b => b.lvl >= L);
-  return {
+  const commun = {
     n, avg: r2(sum / n), ci: r2(1.96 * sd / Math.sqrt(n)), top1: r3(w / n), top4: r3(t4 / n),
-    avgAdj: r2(avgAdj), top1Adj: r3((w + kAvg * g.top1) / (n + kAvg)), ecart: r2(avgAdj - g.avg),
-    // fiabilité : bornes basses du top 1 et du top 4
-    top1Low: r3(wilsonLow(w, n)), top4Low: r3(wilsonLow(t4, n)),
     // atteinte : part des plateaux de la compo qui finissent à ce niveau ou plus, et top 4 chez eux
     atteint: r3(ge.length / boards.length), nAtteint: ge.length, top4Atteint: r3(ge.filter(b => b.p <= 4).length / ge.length),
     // répartition des places 1 à 8, part des places 7-8, régularité (écart-type)
     rep, bas: r3((rep[6] + rep[7]) / n), sigma: r2(sd),
+  };
+  if (!opts) {
+    const avgAdj = (sum + kAvg * g.avg) / (n + kAvg);
+    return {
+      ...commun, avgAdj: r2(avgAdj), top1Adj: r3((w + kAvg * g.top1) / (n + kAvg)), ecart: r2(avgAdj - g.avg),
+      // fiabilité : bornes basses du top 1 et du top 4
+      top1Low: r3(wilsonLow(w, n)), top4Low: r3(wilsonLow(t4, n)),
+    };
+  }
+  // Sommes pondérées de chaque mesure
+  let W = 0, Q = 0;
+  const S = { avg: 0, top1: 0, top4: 0 };
+  for (const b of l) {
+    const x = poids(b);
+    W += x; Q += x * x;
+    for (const m of Object.keys(S)) S[m] += x * VALEURS[m](b.p);
+  }
+  const repere = m => g[m + 'Pond'] ?? g[m] ?? MOYENNES[m];
+  const score = m => {
+    const a = opts.ancre ? opts.ancre(m, W, S[m]) : repere(m), K = opts.K[m];
+    return W + K > 0 ? (S[m] + K * a) / (W + K) : a;
+  };
+  const avgAdj = score('avg');
+  const nEff = Q > 0 ? W * W / Q : n;   // nombre de plateaux « équivalents » (Kish)
+  return {
+    ...commun,
+    avgAdj: r2(avgAdj), top1Adj: r3(score('top1')), top4Adj: r3(score('top4')), ecart: r2(avgAdj - repere('avg')), nUtile: Math.round(W),
+    // fiabilité : bornes basses du top 1 et du top 4 pondérés
+    top1Low: W > 0 ? r3(wilsonLow(S.top1 / W * nEff, nEff)) : 0, top4Low: W > 0 ? r3(wilsonLow(S.top4 / W * nEff, nEff)) : 0,
   };
 }

@@ -113,8 +113,9 @@ function findGames(root) {
 // Sans eux, l'interface ne peut pas fabriquer de code d'équipe à importer dans TFT.
 export async function majPlanner(c, lire = lcuGet) {
   const actuel = readJ(PLANNER, null);
-  // Un fichier d'avant les icônes (sans « icones ») est relu tout de suite
-  if (actuel && actuel.sets && Date.now() - actuel.maj < PLANNER_VALIDITE && Object.values(actuel.sets).every(x => x.icones)) return false;
+  // Un fichier d'avant les icônes (sans « icones »), ou sans aucun code de champion, est relu tout de suite
+  const complet = x => x && x.icones && x.codes && Object.keys(x.codes).length > 0;
+  if (actuel && actuel.sets && Object.keys(actuel.sets).length && Date.now() - actuel.maj < PLANNER_VALIDITE && Object.values(actuel.sets).every(complet)) return false;
   if (Date.now() - plannerEssai < 3600e3) return false;
   plannerEssai = Date.now();
   const sets = lirePlanners(await lire(c, '/lol-game-data/assets/v1/tftchampions-teamplanner.json'));

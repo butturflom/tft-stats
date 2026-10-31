@@ -61,6 +61,12 @@ function recevoir(m) {
   else if (m.type === 'forme') refaireOverlay(m.forme !== false);
   else if (m.type === 'fermer') { if (overlay) overlay.close(); }
   else if (m.type === 'deja-lance') dejaLance(m.url);
+  // Boutons de la barre de titre du tableau de bord (fenêtre sans cadre Windows)
+  else if (m.type === 'fenetre-action' && fenetre) {
+    if (m.action === 'reduire') fenetre.minimize();
+    else if (m.action === 'agrandir') { if (fenetre.isMaximized()) fenetre.unmaximize(); else fenetre.maximize(); }
+    else if (m.action === 'fermer') fenetre.close();
+  }
 }
 
 // ---- Une autre instance, lancée sans Electron, occupe déjà le port ----
@@ -91,7 +97,7 @@ async function dejaLance(url) {
 function ouvrirFenetre() {
   if (!base) { aOuvrir = true; return; }
   if (fenetre) { if (fenetre.isMinimized()) fenetre.restore(); fenetre.show(); fenetre.focus(); return; }
-  const w = fenetre = new BrowserWindow({ width: 1300, height: 900, minWidth: 360, minHeight: 400, title: 'TFT Stats', icon: ICONE, backgroundColor: '#10121a', show: false, webPreferences: WEB });
+  const w = fenetre = new BrowserWindow({ width: 1300, height: 900, minWidth: 360, minHeight: 400, title: 'TFT Stats', icon: ICONE, backgroundColor: '#0c0e14', frame: false, show: false, webPreferences: WEB });
   surveiller(w);
   raccourcis(w);
   w.once('ready-to-show', () => w.show());
@@ -107,7 +113,7 @@ function ouvrirOverlay(m) {
   const b = placer({ x: m.x, y: m.y, width: m.largeur, height: m.hauteur }, screen.getAllDisplays().map(d => d.workArea), screen.getPrimaryDisplay().workArea);
   const w = overlay = new BrowserWindow({
     ...b, title: 'TFT Overlay', icon: ICONE, show: false,
-    frame: !ovForme, transparent: ovForme, backgroundColor: ovForme ? '#00000000' : '#05070c', hasShadow: false,
+    frame: !ovForme, transparent: ovForme, backgroundColor: ovForme ? '#00000000' : '#0c0e14', hasShadow: false,
     resizable: false, minimizable: false, maximizable: false, fullscreenable: false,
     alwaysOnTop: true, skipTaskbar: true, webPreferences: WEB,
   });
@@ -168,7 +174,9 @@ else {
   app.whenReady().then(() => {
     Menu.setApplicationMenu(null);
     session.defaultSession.setPermissionRequestHandler((wc, permission, reponse) => reponse(false));
-    ICONE = nativeImage.createFromBuffer(icone(64));
+    // Icône de l'appli (public/tft-stats.png) ; à défaut, l'hexagone dessiné par outils.mjs
+    const png = nativeImage.createFromPath(path.join(ROOT, 'public', 'tft-stats.png'));
+    ICONE = png.isEmpty() ? nativeImage.createFromBuffer(icone(64)) : png;
     log('démarrage' + (FOND ? ' (en arrière-plan)' : ''));
     lancerServeur();
   });

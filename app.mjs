@@ -13,6 +13,8 @@ import { Worker } from 'node:worker_threads';
 import zlib from 'node:zlib';
 import { servirImage } from './images.mjs';
 import { codesDesCompos } from './niveaux.mjs';
+import { recettes, majRecettes } from './recettes.mjs';
+import { historique } from './historique.mjs';
 import { releverVersion } from './patchs.mjs';
 import { scoutLobby, scoutState, readLobby } from './scout.mjs';
 import { ouvrir, nombreParties, etatFile, rangsCibles, getMeta, DOSSIER_SAUVEGARDES, listeSauvegardes, nomSauvegarde } from './db.mjs';
@@ -312,6 +314,11 @@ async function traiter(req, res) {
     if (p === '/api/lobby') {
       scanLobby(null, null); return json(res, 200, { ok: true });
     }
+    if (p === '/api/fenetre') {
+      if (!['reduire', 'agrandir', 'fermer'].includes(b.action)) return json(res, 400, { erreur: 'Action inconnue' });
+      if (ELECTRON) versElectron({ type: 'fenetre-action', action: b.action });
+      return json(res, 200, { ok: true });
+    }
     if (p === '/api/overlay') {
       const taille = b.taille === 'compact' ? 'compact' : 'complet';
       const int = (v, lo, hi) => { const n = Math.round(Number(v)); return Number.isFinite(n) && n >= lo && n <= hi ? n : null; };
@@ -407,6 +414,17 @@ async function traiter(req, res) {
       codesCache = { cle, corps: { disponible: !!planner, set: stats ? stats.set : null, codes: planner ? codesDesCompos(stats.compos, planner) : {} } };
     }
     return json(res, 200, { ...codesCache.corps, client: lcuState.connecte });
+  }
+  if (p === '/api/historique') {
+    // Tes dernières parties avec les plateaux de tes adversaires
+    try { return json(res, 200, historique(url.searchParams.get('n'))); }
+    catch (e) { log('Historique : ' + e.message); return json(res, 500, { erreur: 'Historique indisponible : ' + e.message }); }
+  }
+  if (p === '/api/recettes') {
+    // Composants de chaque objet complet ; les recettes de Community Dragon arrivent en arrière-plan
+    const r = recettes();
+    majRecettes(r.version)?.then(ok => { if (ok) { state.recettesVersion = Date.now(); broadcast(); } });
+    return json(res, 200, r);
   }
   if (p === '/api/augments') {
     let cat = { version: null, list: {} };

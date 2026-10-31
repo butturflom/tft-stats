@@ -1,6 +1,6 @@
 // Augments, objets et rôle de chaque champion, plateau type de chaque compo et index des champions et des objets.
 import { compoParNiveau } from '../niveaux.mjs';
-import { r2, summarize } from './outils.mjs';
+import { r2, summarize, poids } from './outils.mjs';
 
 // Statistiques des augments (de tous les plateaux, et des tiens : ajoutés à « moi »)
 export function statsAugments({ boards, mine, moi }) {
@@ -18,12 +18,13 @@ export function statsAugments({ boards, mine, moi }) {
 // Plateau type et composition par niveau de chaque compo (ajoutés aux compos), puis index des champions et des objets
 export function plateauxEtIndex({ comps, groups, boards, names, T = id => id, I, UI, II, traitsClient = null }) {
   const isComponent = it => /Component_/.test(it);
-  // Objets et rôle de chaque champion sur l'ensemble des top 4
+  // Objets et rôle de chaque champion sur l'ensemble des top 4. n : nombre de plateaux (seuils) ; nP, held, c : pondérés comme les scores
+  // (patch en cours, parties récentes) : les objets qu'on pose changent avec les patchs.
   const unitGlobal = new Map();
   for (const b of boards) if (b.p <= 4) for (const u of b.units) {
-    if (!unitGlobal.has(u.id)) unitGlobal.set(u.id, { n: 0, held: 0, c: {}, cost: u.cost });
-    const o = unitGlobal.get(u.id); o.n++;
-    if (u.items.length >= 2) { o.held++; for (const it of new Set(u.items)) if (!isComponent(it)) o.c[it] = (o.c[it] || 0) + 1; }
+    if (!unitGlobal.has(u.id)) unitGlobal.set(u.id, { n: 0, nP: 0, held: 0, c: {}, cost: u.cost });
+    const o = unitGlobal.get(u.id), x = poids(b); o.n++; o.nP += x;
+    if (u.items.length >= 2) { o.held += x; for (const it of new Set(u.items)) if (!isComponent(it)) o.c[it] = (o.c[it] || 0) + x; }
   }
   const topOf = c => Object.entries(c).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k]) => k);
   const usedItems = new Set();
@@ -34,14 +35,16 @@ export function plateauxEtIndex({ comps, groups, boards, names, T = id => id, I,
     const nUnits = Math.max(7, Math.min(10, Math.round(c.niveauMoyen)));
     const core = [...c.noyau].sort((a, b) => b.freq - a.freq).slice(0, nUnits);
     const units = core.map(u => {
-      const withU = ref.map(b => b.units.find(x => x.id === u.id)).filter(Boolean);
-      const holders = withU.filter(x => x.items.length >= 2);
+      // [poids du plateau, unité] : les parts et les objets les plus posés sont pondérés, les seuils (nHold) comptent de vrais plateaux
+      const withU = ref.map(b => [poids(b), b.units.find(x => x.id === u.id)]).filter(([, x]) => x);
+      const holders = withU.filter(([, x]) => x.items.length >= 2);
+      const wU = withU.reduce((t, [w]) => t + w, 0), wH = holders.reduce((t, [w]) => t + w, 0);
       const cnt = {};
-      for (const h of holders) for (const it of new Set(h.items)) if (!isComponent(it)) cnt[it] = (cnt[it] || 0) + 1;
+      for (const [w, h] of holders) for (const it of new Set(h.items)) if (!isComponent(it)) cnt[it] = (cnt[it] || 0) + w;
       const stars = {};
-      for (const x of withU) stars[x.star] = (stars[x.star] || 0) + 1;
+      for (const [w, x] of withU) stars[x.star] = (stars[x.star] || 0) + w;
       return {
-        id: u.id, share: withU.length ? holders.length / withU.length : 0, nHold: holders.length,
+        id: u.id, share: wU > 0 ? wH / wU : 0, nHold: holders.length,
         objets: topOf(cnt), etoiles: Number(Object.entries(stars).sort((a, b) => b[1] - a[1])[0]?.[0] || 1),
       };
     });
@@ -65,7 +68,7 @@ export function plateauxEtIndex({ comps, groups, boards, names, T = id => id, I,
     const g = unitGlobal.get(id);
     const objets = g ? topOf(g.c) : [];
     objets.forEach(it => usedItems.add(it));
-    unitsIndex[id] = { nom, img: UI(id), cout: g?.cost ?? null, porteur: g && g.n >= 20 ? r2(g.held / g.n) : null, objets };
+    unitsIndex[id] = { nom, img: UI(id), cout: g?.cost ?? null, porteur: g && g.n >= 20 && g.nP > 0 ? r2(g.held / g.nP) : null, objets };
   }
   const itemsIndex = Object.fromEntries([...usedItems].map(id => [id, { nom: names.items?.[id] || I(id), img: II(id) }]));
   return { unitsIndex, itemsIndex };

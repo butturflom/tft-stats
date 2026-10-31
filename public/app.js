@@ -4,6 +4,7 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const pct = (x, d = 1) => x == null ? '—' : (x * 100).toFixed(d).replace('.', ',') + ' %';
 const f2 = x => x == null ? '—' : Number(x).toFixed(2).replace('.', ',');
+const f1 = x => x == null ? '—' : Number(x).toFixed(1).replace('.', ',');
 const int = x => Number(x || 0).toLocaleString('fr-FR');
 const norm = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\(.*?\)/g, '').replace(/[^a-z0-9' ]/g, ' ').replace(/\s+/g, ' ').trim();
 const ago = iso => { if (!iso) return 'jamais'; const m = Math.round((Date.now() - new Date(iso)) / 60000); return m < 1 ? 'à l\'instant' : m < 60 ? `il y a ${m} min` : m < 1440 ? `il y a ${Math.round(m / 60)} h` : `il y a ${Math.round(m / 1440)} j`; };
@@ -170,19 +171,59 @@ function noData(msg) {
 const uIdx = id => (STATS && STATS.unitsIndex && STATS.unitsIndex[id]) || null;
 const iIdx = id => (STATS && STATS.itemsIndex && STATS.itemsIndex[id]) || { nom: id, img: null };
 function itemPic(id) {
-  const it = iIdx(id), u = ddUrl('tft-item', it.img);
-  return `<span class="bi" title="${esc(it.nom)}">${u ? `<img src="${u}" alt="${esc(it.nom)}" loading="lazy" decoding="async">` : esc(it.nom.slice(0, 2))}</span>`;
+  const it = iIdx(id), u = ddUrl('tft-item', it.img), r = recetteTxt(id);
+  return `<span class="bi" title="${esc(it.nom + (r ? ' = ' + r : ''))}">${u ? `<img src="${u}" alt="${esc(it.nom)}" loading="lazy" decoding="async">` : esc(it.nom.slice(0, 2))}</span>`;
+}
+// ---- Recettes : les deux composants de chaque objet (/api/recettes) ----
+let REC = { objets: {}, composants: {} }, recVer = null;
+async function loadRecettes() { try { REC = await api('/api/recettes'); } catch {} }
+const recDe = id => (REC.objets && REC.objets[id]) || null;
+const composant = id => (REC.composants && REC.composants[id]) || { nom: String(id).replace(/^.*(Component_|Item_)/, '').replace(/([a-z])([A-Z])/g, '$1 $2'), img: null };
+function recetteTxt(id) {
+  const r = recDe(id);
+  return r ? r.composants.map(k => composant(k).nom).join(' + ') + (r.lumiere ? ' (version de la lumière)' : '') : '';
+}
+function compPic(k) {
+  const c = composant(k), u = ddUrl('tft-item', c.img);
+  return `<span class="ci" title="${esc(c.nom)}">${u ? `<img src="${u}" alt="${esc(c.nom)}" loading="lazy" decoding="async" data-repli="${esc(c.nom.slice(0, 2))}">` : esc(c.nom.slice(0, 2))}</span>`;
+}
+// Recette d'un objet : icônes des deux composants (avec leurs noms si « noms »). Artefacts : ne se fabriquent pas.
+function recetteHtml(id, noms) {
+  const r = recDe(id);
+  if (!r) {
+    if (/Artifact/.test(id)) return `<span class="rec none">${noms ? 'Artefact : ne se fabrique pas' : 'artefact'}</span>`;
+    const spat = /Emblem/.test(id) && Object.keys(REC.composants || {}).find(k => /Spatula$/.test(k));
+    return spat ? `<span class="rec" title="Spatule + composant du trait (recette exacte indisponible sans connexion)">${noms ? `<span class="rc">${compPic(spat)}<small>${esc(composant(spat).nom)}</small></span>` : compPic(spat)}<i>+</i><b class="ci">?</b></span>` : '';
+  }
+  return `<span class="rec" title="${esc(recetteTxt(id))}">${r.composants.map(k => noms ? `<span class="rc">${compPic(k)}<small>${esc(composant(k).nom)}</small></span>` : compPic(k)).join('<i>+</i>')}</span>`;
+}
+// Porteurs d'objets d'un plateau : le carry d'abord, puis ceux qui ont le plus d'objets
+const porteurs = (units, carryId) => (units || []).filter(u => u.objets && u.objets.length)
+  .sort((a, b) => (b.id === carryId) - (a.id === carryId) || b.objets.length - a.objets.length);
+// Liste « champion → objets → composants » (tableau de bord)
+function objetsRecettesHtml(units, carryId) {
+  const h = porteurs(units, carryId);
+  if (!h.length) return '';
+  return `<div class="recipes">${h.map(c => {
+    const u = uIdx(c.id) || { nom: c.id, img: null };
+    return `<div class="rrow"><div class="rwho"><span class="rpic k${costOf(c.id)}">${unitPic(u.nom, u.img)}</span><b>${esc(u.nom)}</b>${c.id === carryId ? '<span class="ctag">carry</span>' : ''}</div>
+      <div class="ritems">${c.objets.map(id => `<div class="ritem">${itemPic(id)}<div><span class="rname">${esc(iIdx(id).nom)}</span>${recetteHtml(id, true)}</div></div>`).join('')}</div></div>`;
+  }).join('')}</div>`;
 }
 // units : [{ id, etoiles, objets }], porteurs d'objets en premier
-function boardHtml(units) {
+function boardHtml(units, carryId) {
   if (!units || !units.length) return '';
   return `<div class="units">${units.map(c => {
     const u = uIdx(c.id) || { nom: c.id, img: null, cout: null };
     const k = u.cout || COST[u.nom] || 0;
     const stars = c.etoiles > 1 ? '★'.repeat(c.etoiles) : '';
-    return `<div class="u ${k ? 'k' + k : ''}">${stars ? `<em>${stars}</em>` : ''}<i title="${esc(u.nom)}">${unitPic(u.nom, u.img)}</i>${esc(u.nom)}${c.objets && c.objets.length ? `<span class="hit">${c.objets.map(itemPic).join('')}</span>` : ''}</div>`;
+    const carry = carryId && c.id === carryId;
+    return `<div class="u ${k ? 'k' + k : ''}${carry ? ' carry' : ''}">${stars ? `<em>${stars}</em>` : ''}${carry ? '<span class="ctag" title="Carry principal de la compo">carry</span>' : ''}<i title="${esc(u.nom)}">${unitPic(u.nom, u.img)}</i><span class="un">${esc(u.nom)}</span><span class="hit">${(c.objets || []).slice(0, 3).map(itemPic).join('')}</span></div>`;
   }).join('')}</div>`;
 }
+// Ordre d'affichage d'un plateau : carry, autres porteurs d'objets, puis le reste du moins cher au plus cher
+const ordrePlateau = (units, carryId) => (units || []).slice().sort((a, b) => (b.id === carryId) - (a.id === carryId)
+  || (b.objets || []).length - (a.objets || []).length || costOf(a.id) - costOf(b.id));
 // ---- Construire la compo niveau par niveau (4 à 10) et copier le code d'équipe ----
 let CODES = { disponible: false, codes: {}, client: false };
 async function loadCodes() { try { CODES = await api('/api/codes'); } catch {} }
@@ -216,8 +257,8 @@ function niveauxHtml(c, ov) {
   // Traits actifs (traits du client LoL) : nombre de champions, et ce qu'il faut pour le palier suivant
   const syn = (n.synergies || []).map(s => `<span class="syn" title="${esc(s.prochain ? `${s.n} champions · palier suivant à ${s.prochain}` : `${s.n} champions · palier maximum`)}">${esc(s.nom || s.id)} <b>${s.n}</b></span>`).join('');
   const board = ov
-    ? `<div class="ovstrip wrap">${n.unites.map(u => { const i = uIdx(u.id) || { nom: u.id }; return `<div class="ovcard">${ovUnit(u, true)}<span>${esc(i.nom)}</span></div>`; }).join('')}</div>`
-    : boardHtml(n.unites);
+    ? `<div class="ovstrip wrap">${ordrePlateau(n.unites, c.carryId).map(u => { const i = uIdx(u.id) || { nom: u.id }; return `<div class="ovcard">${ovUnit(u, true)}<span>${esc(i.nom)}</span></div>`; }).join('')}</div>`
+    : boardHtml(ordrePlateau(n.unites, c.carryId), c.carryId);
   return `<div class="nivbox" data-cle="${esc(c.cle)}" data-ov="${ov ? 1 : 0}">
     <div class="nivbar" role="tablist" aria-label="Niveau du joueur">${lv.map(x => `<button type="button" role="tab" class="niv${x.niveau === cur ? ' on' : ''}${x.source === 'estime' ? ' est' : ''}" aria-selected="${x.niveau === cur}" data-niv="${x.niveau}" data-niv-cle="${esc(c.cle)}" title="${x.source === 'observe' ? 'Observé' : 'Reconstitué'} · niveau ${x.niveau}">${ov ? '' : 'Niveau '}${x.niveau}</button>`).join('')}</div>
     ${board}
@@ -271,7 +312,7 @@ function synergiesHtml(c) {
   return `
       <div class="grid2">
         <div class="block"><h4>Noyau de la compo</h4>
-          <p>Part des plateaux qui jouent chaque champion, et part chez ceux qui finissent 1ers.</p>
+          <p>Part des plateaux qui jouent chaque champion, et part chez ceux qui finissent 1ers (les parties récentes du patch en cours comptent davantage).</p>
           <div class="units">${c.noyau.slice(0, 12).map(u => unitTile(u.nom, { img: u.img, cost: u.cout, sub: `${Math.round(u.freq * 100)} % · ${u.freqGagnants != null ? Math.round(u.freqGagnants * 100) + ' %' : '—'}` })).join('')}</div>
         </div>
         <div class="block"><h4>Objets du carry (${esc(c.carry)})</h4>
@@ -284,7 +325,7 @@ function synergiesHtml(c) {
         </div>
         <div class="block"><h4>Bascules si tu es contesté</h4>
           ${c.bascules && c.bascules.length ? `<div class="chips">${c.bascules.map(b => `<span class="chip">${esc(b.nom)} · <b>${b.communs}</b> champions en commun · 1re ${pct(b.top1Adj, 0)}</span>`).join('')}</div>` : '<p>Aucune compo proche avec assez de données.</p>'}
-          ${c.duels ? `<h4 style="margin-top:12px">Duels dans un même lobby</h4>
+          ${c.duels ? `<h4 style="margin-top:12px" title="Part des lobbys communs où la compo finit devant, pondérée (patch en cours, parties récentes) et ramenée vers 50 % quand il y en a peu. Le nombre est celui des lobbys communs.">Duels dans un même lobby</h4>
             ${c.duels.forte.length ? `<p>Finit devant : ${c.duels.forte.map(d => `${esc(d.contre)} (${pct(d.devant, 0)}, ${d.n})`).join(' · ')}</p>` : ''}
             ${c.duels.faible.length ? `<p>Finit derrière : ${c.duels.faible.map(d => `${esc(d.contre)} (${pct(d.devant, 0)}, ${d.n})`).join(' · ')}</p>` : ''}` : ''}
         </div>
@@ -294,9 +335,9 @@ function synergiesHtml(c) {
 function compCard(c, i) {
   const badges = [];
   if (c.n < 100) badges.push('<span class="badge b-mid">Peu de parties</span>');
-  const core = c.noyau.filter(u => u.freq >= 0.5).slice(0, 9);
-  const carryFirst = [...core.filter(u => u.id === c.carryId), ...core.filter(u => u.id !== c.carryId)];
-  const items = c.trioCarry ? c.trioCarry.objets : c.objetsCarry.slice(0, 3);
+  // Plateau type : chaque objet sous le champion qui le porte (sinon le noyau de la compo, sans objets)
+  const plateau = c.plateau && c.plateau.length ? c.plateau
+    : c.noyau.filter(u => u.freq >= 0.5).slice(0, 9).map(u => ({ id: u.id, etoiles: 0, objets: [] }));
   return `<article class="card">
     <div class="head">
       <span class="rank">#${i + 1}</span>
@@ -307,11 +348,12 @@ function compCard(c, i) {
         <div class="m"><b>${f2(c.avg)}<small> ±${f2(c.ci)}</small></b><span>place moy.</span></div>
         <div class="m"><b>${int(c.n)}</b><span>plateaux</span></div>
       </div>
-      <div class="units">${carryFirst.map(u => unitTile(u.nom, { img: u.img, cost: u.cout, rank: u.id === c.carryId ? 1 : 0 })).join('')}
-        <div class="items" title="Objets du carry">${items.map(itemIcon).join('')}</div></div>
+      ${boardHtml(ordrePlateau(plateau, c.carryId), c.carryId)}
     </div>
-    ${c.plateau && c.plateau.length ? `<details class="more" data-lazy="plateau" data-cle="${esc(c.cle)}"><summary>Plateau et objets</summary></details>` : ''}
+    ${c.plateau && c.plateau.length ? `<details class="more" data-lazy="plateau" data-cle="${esc(c.cle)}"><summary>Objets et composants</summary></details>` : ''}
     ${c.niveaux && c.niveaux.length ? `<details class="more" data-lazy="niveaux" data-cle="${esc(c.cle)}"${(STATE && STATE.suivie && STATE.suivie.cle === c.cle) || OUVRIR === c.cle ? ' open' : ''}><summary>Construire la compo par niveau (4 à 10)</summary></details>` : ''}
+    ${c.variantes && c.variantes.length ? `<details class="more" data-lazy="variantes" data-cle="${esc(c.cle)}"><summary>Builds différents (${c.variantes.length})</summary></details>` : ''}
+    ${c.impactObjets ? `<details class="more" data-lazy="impact" data-cle="${esc(c.cle)}"><summary>Effet des objets du carry (${esc(c.carry)})</summary></details>` : ''}
     <details class="more" data-lazy="synergies" data-cle="${esc(c.cle)}"><summary>Synergies, contestation et bascules</summary></details>
   </article>`;
 }
@@ -325,6 +367,47 @@ function qualiteLine() {
   return `<p><small class="muted">${q.statut === 'ok' ? '✓' : '⚠'} Données : ${int(p.retenues)} parties retenues sur ${int(p.lues)} lues${ecartees}${doublons} · place moyenne ${f2(q.controle.moyenne)} (attendu ${f2(q.controle.attendu)}) · seuil ${q.seuils.minN} plateaux</small></p>`;
 }
 
+// Précision mesurée par rejeu sur le passé (section precision de stats.json, analyse/precision.mjs)
+// Poids des parties dans le score des compos (section ponderation de stats.json, analyse/ponderation.mjs)
+function ponderationLine() {
+  const po = STATS && STATS.ponderation;
+  if (!po || !po.actif) return '';
+  const anciens = po.plateaux ? ` ${pct(po.plateauxAnciens / po.plateaux, 0)} des plateaux analysés viennent d'un patch précédent${po.patch ? ` (le patch en cours est le ${esc(po.patch)})` : ''}.` : '';
+  return `<p><small class="muted">Scores des compos (taux de 1re place affiché, tris « Plus de 1res places », « Plus de top 4 » et « Meilleure place moyenne ») : une partie d'un patch précédent compte pour ${pct(po.ancien, 0)}, et le poids d'une partie est divisé par 2 tous les ${po.demiVieJours} jours.${anciens} Le classement par niveau, le noyau, les objets du carry, le plateau type, les duels, les traits et les champions utilisent les mêmes poids. Les autres chiffres des cartes (plateaux, place moyenne, top 4) restent ceux de toutes les parties, sans poids.</small></p>`;
+}
+// Même test pour la 1re place et le top 4 : erreur en points de pourcentage
+function precisionTauxTxt() {
+  const t = STATS && STATS.precisionTaux;
+  if (!t) return '';
+  const parts = [['top1', '1re place'], ['top4', 'top 4']].map(([k, nom]) => {
+    const x = t[k];
+    return x && x.disponible && x.actuel ? `${nom} à ${f1(x.actuel.rmse * 100)} points près (au hasard : ${f1(x.reference.constante * 100)} ; bruit : ${f1(x.reference.bruit * 100)})` : '';
+  }).filter(Boolean);
+  return parts.length ? ` Même test pour le taux de ${parts.join(', pour le taux de ')}.` : '';
+}
+function precisionLine() {
+  const p = STATS && STATS.precision;
+  if (!p || !p.disponible || !p.actuel) return '';
+  const a = p.actuel, m = p.meilleur;
+  const meme = m.K === a.K && m.ancien === a.ancien && m.demiVie === a.demiVie;
+  const mieux = !meme && m.rmse < a.rmse * 0.97 && m.decoupesGagnees >= Math.ceil(p.decoupes * 0.7)
+    ? ` · réglage plus précis testé : retour à la moyenne ${m.K}${m.ancien ? `, ancien patch ×${f2(m.ancien)}` : ''}${m.demiVie ? `, demi-vie ${m.demiVie} j` : ''} (erreur ${f2(m.rmse)}, meilleur sur ${m.decoupesGagnees} découpes sur ${p.decoupes})` : '';
+  return `<p><small class="muted">Précision : en rejouant le passé (${p.decoupes} découpes du patch ${esc(p.patchCible)}), le score prédit la place moyenne d'une compo à ${f2(a.rmse)} place près (au hasard : ${f2(p.reference.constante)} ; bruit des parties : ${f2(p.reference.bruit)})${mieux}.${precisionTauxTxt()}</small></p>${ponderationLine()}`;
+}
+
+// Biais de la place moyenne : niveau des joueurs et contestation (section biais de stats.json, analyse/biais.mjs)
+function biaisLine() {
+  const b = STATS && STATS.biais;
+  if (!b || !b.disponible) return '';
+  const m = f2(b.correctionMax);
+  const fin = b.verdict === 'negligeable'
+    ? `ne décalent la place moyenne d'une compo que de ${m} place au plus${b.correlationClassement != null && b.correlationClassement >= 0.99 ? ' (classement inchangé)' : ''} : négligeable`
+    : `décalent la place moyenne d'une compo jusqu'à ${m} place : à corriger (places corrigées dans stats.json)`;
+  const st = b.niveau.stabilite && b.niveau.stabilite.correlation != null ? ` Le niveau d'un joueur ne se retrouve pas d'une moitié de ses parties à l'autre (corrélation ${f2(b.niveau.stabilite.correlation)}).` : '';
+  const cont = b.contestation.parts[1] + b.contestation.parts[2];
+  return `<p><small class="muted">Biais : le niveau des joueurs (rang) et la contestation du lobby (même carry joué par un autre joueur : ${pct(cont, 0)} des plateaux) ${fin}.${st}</small></p>`;
+}
+
 // ---- Listes longues : affichage par pages, recherche différée, contenu des sections chargé à l'ouverture ----
 const PAGE = 20, PAGE_NIVEAU = 40;
 const debounce = (f, ms = 160) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => f(...a), ms); }; };
@@ -335,10 +418,61 @@ const compDe = cle => STATS && STATS.compos.find(x => x.cle === cle);
 
 // Sections d'une carte : leur contenu n'est construit qu'à la première ouverture (153 cartes × 3 sections = des milliers de noeuds en moins)
 const LAZY = {
-  plateau: c => boardHtml(c.plateau),
+  plateau: c => objetsRecettesHtml(c.plateau, c.carryId),
   niveaux: c => `<div class="nivwrap">${niveauxHtml(c, false)}</div>`,
   synergies: c => synergiesHtml(c),
+  impact: c => impactHtml(c),
+  variantes: c => variantesHtml(c),
 };
+// ---- Effet des objets du carry (analyse/impact-objets.mjs) ----
+const ecartTxt = x => (x > 0 ? '+' : x < 0 ? '−' : '') + f2(Math.abs(x));
+const VERDICT = { mieux: ['good', 'finit mieux'], 'moins bien': ['bad', 'finit moins bien'], neutre: ['', 'pas d\'écart net'] };
+function impactHtml(c) {
+  const io = c.impactObjets;
+  if (!io || !io.complets) return '<p class="muted" style="padding:4px 14px 14px">Pas assez de plateaux avec un carry à 3 objets.</p>';
+  const n2 = io.parNombre.find(x => x.objets === 2 && x.n >= 5);
+  const trios = io.trios.length ? `<h4>Trios les plus réussis</h4>
+    <div class="tablewrap"><table class="itab"><thead><tr><th>Objets</th><th class="n">Plateaux</th><th class="n">Place moy.</th><th class="n">Top 4</th><th class="n">1re</th></tr></thead><tbody>
+    ${io.trios.map(t => `<tr><td><span class="itrio">${t.objets.map(o => `${itemIcon(o)}<span>${esc(o.nom)}</span>`).join('')}</span></td><td class="n">${int(t.n)}</td><td class="n">${f2(t.avg)}<small> ±${f2(t.ci)}</small></td><td class="n">${pct(t.top4, 0)}</td><td class="n">${pct(t.top1, 0)}</td></tr>`).join('')}
+    </tbody></table></div><p class="muted"><small>Classés par place moyenne ramenée vers celle de la compo quand le trio est peu joué (un trio vu 10 fois ne passe pas devant un trio vu 100 fois sur un coup de chance).</small></p>` : '';
+  const objets = io.objets.length ? `<h4>Chaque objet : avec ou sans, à carry complet</h4>
+    <div class="tablewrap"><table class="itab"><thead><tr><th>Objet</th><th class="n">Porté</th><th class="n">Écart de place</th><th class="n">Top 4 avec / sans</th><th>Verdict</th></tr></thead><tbody>
+    ${io.objets.map(o => { const [cl, txt] = VERDICT[o.verdict] || VERDICT.neutre; return `<tr><td><span class="iobj">${itemIcon(o)}<span><b>${esc(o.nom)}</b>${recetteHtml(o.id, true)}</span></span></td><td class="n">${pct(o.part, 0)}<small> · ${int(o.n)}</small></td><td class="n ${cl}" title="Place moyenne avec l'objet moins place moyenne sans, ± marge à 95 %">${ecartTxt(o.ecart)}<small> ±${f2(o.marge)}</small></td><td class="n">${pct(o.top4, 0)} / ${pct(o.top4Sans, 0)}</td><td><span class="verdict ${cl}">${txt}</span></td></tr>`; }).join('')}
+    </tbody></table></div>` : '<p class="muted">Pas assez de plateaux pour comparer les objets un par un.</p>';
+  return `<div class="impact">
+    <p>On compare uniquement les ${int(io.complets)} plateaux de cette compo dont le carry a 3 objets : un objet n'est pas jugé sur les parties perdues avant d'avoir fini le carry.${n2 ? ` (Avec seulement 2 objets, le carry finit en moyenne ${f2(n2.avg)}e sur ${int(n2.n)} plateau${n2.n > 1 ? 'x' : ''} : c'est surtout le signe d'une partie écourtée.)` : ''} Un écart négatif veut dire qu'on finit mieux avec l'objet. « Pas d'écart net » : l'écart ne se distingue pas du hasard. On tient compte du nombre d'objets et de compos comparés : sans cela, plusieurs écarts sortiraient nets par simple chance.</p>
+    ${trios}${objets}
+    <p class="muted"><small>Ce sont des corrélations : un objet peut aussi être le signe d'une bonne partie (beaucoup de composants, d'un carrousel ou d'un augment). Riot ne fournit pas les dégâts des champions, donc on ne mesure que le résultat final.</small></p>
+  </div>`;
+}
+// ---- Variantes (builds) d'une grosse compo (analyse/variantes.mjs) ----
+const NOM_BUILD = ['Build principal', 'Build B', 'Build C', 'Build D'];
+function variantesHtml(c) {
+  const vs = c.variantes || [];
+  if (!vs.length) return '';
+  const tuiles = l => l.map(u => unitTile(u.nom, { img: u.img, cost: u.cout, sub: `${Math.round(u.freq * 100)} %` })).join('');
+  const meilleure = vs.reduce((m, v) => (v.avgAdj < m.avgAdj ? v : m), vs[0]);
+  return `<div class="variantes">
+    <p>Cette compo se joue de ${vs.length} façons nettement différentes (en moyenne 1,5 champion d'écart au moins entre deux builds). Chaque build est regroupé par les champions réellement posés, pas par le nom.</p>
+    ${vs.map((v, i) => {
+      const gain = v.avgAdj - c.avg;
+      const cl = gain < -v.ci ? 'good' : gain > v.ci ? 'bad' : '';
+      return `<section class="vbuild${v === meilleure ? ' best' : ''}">
+        <header><b>${NOM_BUILD[i] || 'Build ' + (i + 1)}</b><span class="muted">${pct(v.part, 0)} des plateaux · ${int(v.n)}</span>${v === meilleure ? '<span class="vtag">le plus réussi</span>' : ''}</header>
+        <div class="vstats">
+          <div><b class="${cl}">${f2(v.avg)}<small> ±${f2(v.ci)}</small></b><span>place moy.</span></div>
+          <div><b>${pct(v.top4, 0)}</b><span>top 4</span></div>
+          <div><b>${pct(v.top1, 0)}</b><span>1re place</span></div>
+          <div><b>${f2(v.niveauMoyen)}</b><span>niveau moy.</span></div>
+        </div>
+        ${v.distinctifs.length ? `<h4>Ce qui le distingue (part des plateaux du build)</h4><div class="vunits">${tuiles(v.distinctifs)}</div>` : ''}
+        ${v.absents.length ? `<h4>Absents ici, présents dans les autres builds</h4><div class="vunits">${tuiles(v.absents)}</div>` : ''}
+        ${!v.distinctifs.length && !v.absents.length ? `<h4>Noyau du build</h4><div class="vunits">${tuiles(v.noyau.slice(0, 8))}</div>` : ''}
+      </section>`;
+    }).join('')}
+    <p class="muted"><small>Place moyenne brute avec son intervalle d'incertitude. Un build joué rarement a un intervalle large : l'écart n'est réel que s'il dépasse cet intervalle.</small></p>
+  </div>`;
+}
 function remplir(d) {
   if (d.dataset.rempli) return;
   const c = compDe(d.dataset.cle), f = LAZY[d.dataset.lazy];
@@ -376,7 +510,7 @@ document.addEventListener('click', e => {
 
 function composFiltrees() {
   const q = norm(UI.q);
-  const key = { top1Adj: c => -c.top1Adj, top4: c => -c.top4, avgAdj: c => c.avgAdj, n: c => -c.n }[UI.sort];
+  const key = { top1Adj: c => -c.top1Adj, top4: c => -(c.top4Adj ?? c.top4), avgAdj: c => c.avgAdj, n: c => -c.n }[UI.sort];
   // Jamais de compo sous le seuil MIN_N de l'analyse (30 plateaux), même si le filtre est plus bas
   const minN = Math.max(UI.minN, ((STATS.qualite && STATS.qualite.seuils) || {}).minN || 30);
   return STATS.compos.filter(c => c.n >= minN && (!q || texteRecherche(c).includes(q))).sort((a, b) => key(a) - key(b));
@@ -398,6 +532,8 @@ function renderCompos() {
   el.innerHTML = `<h2>Mes compos · ${esc(rangsAnalyses())} · EUW</h2>
     <p class="lead">Calculé sur tes propres parties collectées via l'API Riot. Le taux de 1re place est corrigé pour les compos peu jouées : il faut beaucoup de parties pour qu'un chiffre spectaculaire soit crédible. La marge (±) indique la précision de la place moyenne.</p>
     ${qualiteLine()}
+    ${precisionLine()}
+    ${biaisLine()}
     ${factsLine()}
     <div class="toolbar">
       ${patchSelectHtml()}
@@ -418,7 +554,7 @@ function renderCompos() {
 // Compos classées sur les plateaux qui ont fini à un niveau donné : à niveau égal, la comparaison entre compos est juste.
 // Tris du classement par niveau (sur les chiffres de la compo à ce niveau) ; par défaut la borne basse du top 4, qui ne fait pas passer
 // devant une compo éprouvée une compo vue sur trois plateaux
-const NIV_TRI = { top4Low: [s => s.top4Low, -1], top1Low: [s => s.top1Low, -1], avgAdj: [s => s.avgAdj, 1], top1Adj: [s => s.top1Adj, -1], atteint: [s => s.atteint, -1], bas: [s => s.bas, 1], n: [s => s.n, -1] };
+const NIV_TRI = { top4Low: [s => s.top4Low, -1], top1Low: [s => s.top1Low, -1], avgAdj: [s => s.avgAdj, 1], top1Adj: [s => s.top1Adj, -1], top4Adj: [s => s.top4Adj ?? s.top4, -1], atteint: [s => s.atteint, -1], bas: [s => s.bas, 1], n: [s => s.n, -1] };
 // Champions de la compo au niveau choisi (les mêmes que dans « Construire la compo par niveau »), sans les objets
 function compoAuNiveau(c, niveau) {
   const n = (c.niveaux || []).find(x => x.niveau === niveau);
@@ -438,7 +574,7 @@ function ligneNiveau({ c, s }, i) {
   return `<tr><td class="n">${i + 1}</td><td class="cpl" title="${esc(c.nom)}">${compoAuNiveau(c, UI.nl)}</td>`
     + `<td class="n">${int(s.n)}<small class="muted">${pct(s.n / g.plateaux)} du niveau</small></td>`
     + `<td class="n">${pct(s.top1Adj)}<small class="muted" title="Borne basse à 95 % : la compo fait au moins ça, avec ce nombre de plateaux">≥ ${pct(s.top1Low, 0)}</small></td>`
-    + `<td class="n">${pct(s.top4, 0)}<small class="muted" title="Borne basse à 95 % : la compo fait au moins ça, avec ce nombre de plateaux">≥ ${pct(s.top4Low, 0)}</small></td>`
+    + `<td class="n">${pct(s.top4Adj ?? s.top4, 0)}<small class="muted" title="Borne basse à 95 % : la compo fait au moins ça, avec ce nombre de plateaux">≥ ${pct(s.top4Low, 0)}</small></td>`
     + `<td class="n">${f2(s.avg)} <small class="muted">±${f2(s.ci)}</small></td><td class="n">${ecart(s.ecart)}</td>`
     + `<td class="n" title="${esc(titreAtt)}">${pct(s.atteint, 0)}<small class="muted">top 4 ${pct(s.top4Atteint, 0)}</small></td>`
     + `<td class="repcell">${barres}</td>`
@@ -462,6 +598,7 @@ function renderClassementNiveaux() {
   const dispo = STATS.compos.filter(c => c.parNiveau && c.parNiveau[UI.nl]).length;
   el.innerHTML = `<h2>Classement par niveau</h2>
     <p class="lead">Chaque compo est jugée sur les seuls plateaux qui ont fini <b>au niveau choisi</b>. Le niveau de fin dépend de la survie (un joueur éliminé tôt est au niveau 6), donc les chiffres ne se comparent qu'<b>entre compos du même niveau</b> : la colonne « Écart » dit de combien la compo fait mieux (−) ou moins bien (+) que la moyenne des plateaux de ce niveau.</p>
+    <p class="lead">Les 1res places, le top 4 et l'écart sont <b>pondérés</b> (les parties du patch en cours et les plus récentes comptent davantage) et ramenés vers la moyenne du niveau et celle des compos voisines (même carry, même trait) quand la compo est peu jouée ; « Plateaux » et « Place moy. » restent ceux de toutes les parties.</p>
     <p class="lead"><b>Fiabilité</b> : le tri par défaut utilise la borne basse à 95 % (« ≥ ») du top 4 : une compo vue sur peu de plateaux ne passe pas devant une compo éprouvée. <b>Atteint</b> : part des plateaux de la compo qui finissent à ce niveau <i>ou plus</i> (la compo passe-t-elle le cap ?), avec le top 4 chez ceux qui y arrivent. <b>Répartition</b> : les places 1 à 8 (vert = top 4, rouge = 7-8) et la part des places 7-8 ; une compo à moyenne égale mais à beaucoup de 7-8 est plus risquée.</p>
     <div class="nivbar" role="tablist" aria-label="Niveau">${niveaux.map(l => `<button type="button" role="tab" class="niv${l === UI.nl ? ' on' : ''}" aria-selected="${l === UI.nl}" data-nl="${l}">Niveau ${l}</button>`).join('')}</div>
     <div class="facts"><span><b>${int(g.plateaux)}</b> plateaux finis au niveau ${UI.nl}</span><span>place moyenne <b>${f2(g.avg)}</b></span><span>1re place <b>${pct(g.top1)}</b></span><span>top 4 <b>${pct(g.top4, 0)}</b></span></div>
@@ -469,7 +606,7 @@ function renderClassementNiveaux() {
       ${patchSelectHtml()}
       <input type="search" id="nq" placeholder="Chercher une compo" value="${esc(UI.nq)}" aria-label="Rechercher">
       <select id="nmin" aria-label="Taille minimale">${[[1, '1 plateau et plus'], [3, '3 plateaux et plus'], [5, '5 plateaux et plus'], [10, '10 plateaux et plus'], [20, '20 plateaux et plus'], [50, '50 plateaux et plus'], [100, '100 plateaux et plus']].map(([v, l]) => `<option value="${v}" ${UI.nmin == v ? 'selected' : ''}>${l}</option>`).join('')}</select>
-      <select id="nsort" aria-label="Trier">${[['top4Low', 'Fiabilité : borne basse du top 4'], ['top1Low', 'Fiabilité : borne basse de la 1re place'], ['avgAdj', 'Meilleure place moyenne'], ['top1Adj', 'Plus de 1res places'], ['atteint', 'Taux d\'atteinte du niveau'], ['bas', 'Moins de places 7-8'], ['n', 'Plus jouées à ce niveau']].map(([v, l]) => `<option value="${v}" ${UI.nsort === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
+      <select id="nsort" aria-label="Trier">${[['top4Low', 'Fiabilité : borne basse du top 4'], ['top1Low', 'Fiabilité : borne basse de la 1re place'], ['avgAdj', 'Meilleure place moyenne'], ['top1Adj', 'Plus de 1res places'], ['top4Adj', 'Plus de top 4'], ['atteint', 'Taux d\'atteinte du niveau'], ['bas', 'Moins de places 7-8'], ['n', 'Plus jouées à ce niveau']].map(([v, l]) => `<option value="${v}" ${UI.nsort === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
     </div>
     <div class="tablewrap"><table><thead><tr><th class="n">#</th><th>Composition au niveau ${UI.nl}</th><th class="n">Plateaux</th><th class="n">1re place</th><th class="n">Top 4</th><th class="n">Place moy.</th><th class="n" title="Place moyenne corrigée (retour à la moyenne du niveau) moins la moyenne du niveau">Écart</th><th class="n" title="Part des plateaux de la compo qui finissent à ce niveau ou plus">Atteint ${UI.nl}+</th><th>Répartition</th><th></th></tr></thead>
     <tbody id="corpsNiveau"></tbody></table></div>`;
@@ -571,8 +708,70 @@ function renderMoi() {
     <h3 class="section">Par compo</h3>
     <div class="tablewrap" style="margin-top:10px"><table><thead><tr><th>Compo</th><th class="n">Parties</th><th class="n">Ta place moy.</th><th class="n">Les autres</th><th class="n">Écart</th><th class="n">Tes 1res</th><th class="n">Les autres</th></tr></thead>
     <tbody>${m.compos.map(c => { const g = c.moyenneJoueurs; const d = g ? c.avg - g.avg : null; return `<tr><td>${esc(c.nom)}</td><td class="n">${c.n}</td><td class="n">${f2(c.avg)}</td><td class="n">${g ? f2(g.avg) : '—'}</td><td class="n ${d == null ? '' : d <= 0 ? 'good' : 'bad'}">${d == null ? '—' : (d > 0 ? '+' : '') + f2(d)}</td><td class="n">${pct(c.top1, 0)}</td><td class="n">${g ? pct(g.top1, 0) : '—'}</td></tr>`; }).join('')}</tbody></table></div>
-    <p class="lead" style="margin-top:10px">Avec peu de parties par compo, les écarts sont surtout indicatifs : regarde la tendance sur plusieurs sessions.</p>`;
+    <p class="lead" style="margin-top:10px">Avec peu de parties par compo, les écarts sont surtout indicatifs : regarde la tendance sur plusieurs sessions.</p>
+    <h3 class="section">Historique : tes parties et les compos de tes adversaires</h3>
+    <p class="lead">Les 8 plateaux de fin de chaque partie, du 1er au 8e. La compo est nommée comme dans l'analyse : trait principal + carry (le champion qui porte le plus d'objets offensifs). Quand elle fait partie de « Mes compos », ses chiffres sont à côté. Riot ne fournit pas les dégâts des champions (ni, ce set, les dégâts aux joueurs) : seuls la place, le niveau, les champions, leurs étoiles et leurs objets sont connus.</p>
+    <div id="historique">${histHtml()}</div>`;
+  if (!HIST && !histEnCours) loadHistorique();
 }
+
+// ---- Historique de tes parties, avec les plateaux des adversaires (/api/historique) ----
+let HIST = null, HISTN = 20, histEnCours = false;
+async function loadHistorique() {
+  histEnCours = true;
+  try { HIST = await api('/api/historique?n=' + HISTN); } catch (e) { HIST = { erreur: e.message }; }
+  histEnCours = false;
+  const el = $('#historique'); if (el) el.innerHTML = histHtml();
+}
+// Noms et images des champions et objets des adversaires, ajoutés aux index de l'analyse s'ils y manquent
+function histNoms() {
+  if (!HIST || !HIST.noms || !STATS) return;
+  STATS.unitsIndex = STATS.unitsIndex || {}; STATS.itemsIndex = STATS.itemsIndex || {};
+  for (const [id, u] of Object.entries(HIST.noms.unites || {})) if (!STATS.unitsIndex[id]) STATS.unitsIndex[id] = u;
+  for (const [id, o] of Object.entries(HIST.noms.objets || {})) if (!STATS.itemsIndex[id]) STATS.itemsIndex[id] = o;
+}
+function compoDuJoueur(j) {
+  const c = STATS && STATS.compos.find(x => x.cle === j.cle);
+  if (c) return { nom: c.nom, c };
+  const tn = j.main ? ((HIST.noms.traits || {})[j.main] || j.main) : null, cn = j.carryId ? (uIdx(j.carryId) || { nom: j.carryId }).nom : null;
+  return { nom: [tn, cn].filter(Boolean).join(' ') || 'Sans carry identifié', c: null };
+}
+const STYLE_TRAIT = ['', 'bronze', 'argent', 'or', 'prisma', 'unique'];
+function joueurHtml(j, contestes) {
+  const { nom, c } = compoDuJoueur(j);
+  const conteste = j.carryId && contestes.get(j.carryId) > 1;
+  const traits = j.traits.slice(0, 5).map(t => `<span class="syn s${t.style}" title="${esc(STYLE_TRAIT[t.style] || '')}">${esc((HIST.noms.traits || {})[t.id] || t.id)} <b>${t.n}</b></span>`).join('');
+  return `<div class="hj${j.me ? ' moi' : ''}">
+    <div class="hjhead"><span class="hplace p${j.p}">${j.p}</span><div class="hjname"><b>${esc(nom)}</b><small>${j.me ? 'Toi' : 'Adversaire'} · niveau ${j.lvl}${j.manche ? ' · manche ' + esc(j.manche) : ''}${conteste ? ` · <span class="warn-t">carry joué par ${contestes.get(j.carryId)} joueurs</span>` : ''}</small></div>
+      ${c ? `<span class="hstat" title="Cette compo dans « Mes compos » : taux de 1re place corrigé, top 4, plateaux">1re ${pct(c.top1Adj, 0)} · top 4 ${pct(c.top4, 0)} · ${int(c.n)}</span>` : '<span class="hstat muted" title="Pas assez de plateaux de cette compo pour l\'analyse">hors classement</span>'}</div>
+    ${boardHtml(j.unites, j.carryId)}
+    ${traits ? `<div class="nivsyn">${traits}</div>` : ''}
+  </div>`;
+}
+function partieHtml(g) {
+  const moi = g.joueurs.find(j => j.me) || g.joueurs[0];
+  const contestes = new Map();
+  for (const j of g.joueurs) if (j.carryId) contestes.set(j.carryId, (contestes.get(j.carryId) || 0) + 1);
+  const d = new Date(g.t).toLocaleString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  const devant = g.joueurs.filter(j => j.p < moi.p).map(j => compoDuJoueur(j).nom);
+  return `<details class="card hgame" data-hist="${esc(g.id)}"><summary>
+      <span class="hplace p${moi.p}">${moi.p}</span>
+      <span class="hsum"><b>${esc(compoDuJoueur(moi).nom)}</b><small>${esc(d)} · niveau ${moi.lvl}${devant.length ? ` · devant toi : ${esc(devant.slice(0, 3).join(', '))}${devant.length > 3 ? '…' : ''}` : ' · 1re place'}</small></span>
+      <span class="hcarries" aria-hidden="true">${g.joueurs.map(j => { const u = j.carryId && (uIdx(j.carryId) || {}); return `<span class="hcar${j.me ? ' moi' : ''}" title="${esc(j.p + '. ' + compoDuJoueur(j).nom)}">${u ? unitPic(u.nom || j.carryId, u.img) : '?'}</span>`; }).join('')}</span>
+    </summary><div class="hbody">${g.joueurs.map(j => joueurHtml(j, contestes)).join('')}</div></details>`;
+}
+function histHtml() {
+  if (!HIST) return '<p class="muted">Chargement de l\'historique…</p>';
+  if (HIST.erreur) return `<p class="err-msg">${esc(HIST.erreur)}</p>`;
+  if (!HIST.parties.length) return '<p class="muted">Aucune de tes parties n\'est encore dans la base.</p>';
+  histNoms();
+  return HIST.parties.map(partieHtml).join('')
+    + (HIST.parties.length >= HISTN && HISTN < 60 ? '<button type="button" class="ghost plus" id="hist-plus">Afficher plus de parties</button>' : '');
+}
+document.addEventListener('click', e => {
+  if (!e.target.closest('#hist-plus')) return;
+  HISTN = Math.min(60, HISTN + 20); e.target.closest('#hist-plus').textContent = 'Chargement…'; loadHistorique();
+});
 
 // Diagnostic : 6 points concrets, chacun avec un verdict et un conseil
 function coachHtml(j) {
@@ -808,9 +1007,9 @@ function ovTier(s) {
   const i = list.findIndex(x => x <= s.stats.top1Adj), r = list.length ? (i < 0 ? 1 : i / list.length) : 1;
   return r < 0.15 ? 'S' : r < 0.4 ? 'A' : r < 0.7 ? 'B' : 'C';
 }
-function ovUnit(c, big) {
+function ovUnit(c, big, carry) {
   const u = uIdx(c.id) || { nom: c.id, img: null };
-  return `<div class="ovu k${costOf(c.id)}${big ? ' big' : ''}" title="${esc(u.nom)}">
+  return `<div class="ovu k${costOf(c.id)}${big ? ' big' : ''}${carry ? ' carry' : ''}" title="${esc(u.nom + (carry ? ' (carry)' : ''))}">
     <span class="ovst">${c.etoiles > 1 ? '★'.repeat(c.etoiles) : ''}</span>
     <i><b>${unitPic(u.nom, u.img)}</b></i>
     <span class="ovit">${(c.objets || []).slice(0, 3).map(itemPic).join('')}</span></div>`;
@@ -819,20 +1018,25 @@ const ovRow = (lbl, html) => html ? `<div class="ovrow"><span class="ovlbl">${lb
 // Dernier repérage du lobby impossible faute d'accès à l'API spectateur (clé de développement) : relancer ne sert à rien
 const scoutBloque = () => { const sc = STATE && STATE.scout; return !!(sc && sc.statut === 'erreur' && sc.spectateur === false); };
 function ovPanel(s) {
+  // Objet en jeu : icône, puis ses deux composants à côté
+  const ovObj = id => `<span class="ovobj">${itemPic(id)}${recetteHtml(id)}</span>`;
+  const ovQui = c => { const u = uIdx(c.id) || { nom: c.id }; return `<span class="ovmini k${costOf(c.id)}" title="${esc(u.nom)}">${unitPic(u.nom, u.img)}</span><span class="ovnm">${esc(u.nom)}</span>`; };
   if (OVT === 'apercu') {
-    const holders = s.plateau.filter(c => c.objets && c.objets.length).sort((a, b) => (b.id === s.carryId) - (a.id === s.carryId));
+    const holders = porteurs(s.plateau, s.carryId);
     const contest = LOBBY && s.carryId && (LOBBY.contestes || []).find(c => c.id === s.carryId);
-    return `<div class="ovgrid"><div class="ovleft"><div class="ovboard">${boardHtml(s.plateau)}</div></div>
-      <div class="ovright">
-        ${ovRow('Carries', holders.slice(0, 3).map(c => { const u = uIdx(c.id) || { nom: c.id }; return `<div class="ovline"><span class="ovmini k${costOf(c.id)}" title="${esc(u.nom)}">${unitPic(u.nom, u.img)}</span><span class="ovarrow">›</span>${c.objets.map(itemPic).join('')}</div>`; }).join(''))}
+    return `<div class="ovright">
+        ${ovRow('Objets clés', holders.slice(0, 3).map(c => `<div class="ovline">${ovQui(c)}<span class="ovobjs">${c.objets.map(ovObj).join('')}</span></div>`).join(''))}
         ${ovRow('Lobby', !LOBBY ? `<span class="ovtxt muted">${scoutBloque() ? 'Repérage indisponible avec ta clé' : 'Pas encore repéré'}</span>` : contest ? `<span class="ovtxt warn">⚠ ${esc(contest.nom)} joué par ${contest.joueurs.length}</span>` : '<span class="ovtxt good">✓ Carry libre</span>')}
-      </div></div>`;
+      </div>`;
   }
   if (OVT === 'niveaux') return s.stats && s.stats.niveaux ? niveauxHtml(s.stats, true) : '<p class="muted">Les niveaux ne sont pas encore calculés : relance l\'analyse.</p>';
-  if (OVT === 'unites') return `<div class="ovstrip wrap">${s.plateau.slice().sort((a, b) => costOf(a.id) - costOf(b.id)).map(c => { const u = uIdx(c.id) || { nom: c.id }; return `<div class="ovcard">${ovUnit(c, true)}<span>${esc(u.nom)}</span></div>`; }).join('')}</div>`;
+  if (OVT === 'unites') return `<div class="ovstrip wrap">${ordrePlateau(s.plateau, s.carryId).map(c => { const u = uIdx(c.id) || { nom: c.id }; return `<div class="ovcard">${ovUnit(c, true)}<span>${esc(u.nom)}</span></div>`; }).join('')}</div>`;
   if (OVT === 'objets') {
-    const holders = s.plateau.filter(c => c.objets && c.objets.length).sort((a, b) => (b.id === s.carryId) - (a.id === s.carryId));
-    return holders.length ? holders.map(c => { const u = uIdx(c.id) || { nom: c.id }; return `<div class="ovlvrow"><span class="ovmini k${costOf(c.id)}">${unitPic(u.nom, u.img)}</span><div class="ovitems">${c.objets.map(id => `<span class="ovitem">${itemPic(id)}<span>${esc(iIdx(id).nom)}</span></span>`).join('')}</div></div>`; }).join('') : '<p class="muted">Pas d\'objets connus.</p>';
+    const holders = porteurs(s.plateau, s.carryId);
+    const io = s.stats && s.stats.impactObjets, t = io && io.trios && io.trios[0];
+    const forts = io ? io.objets.filter(o => o.verdict === 'mieux').slice(0, 3) : [];
+    const mesure = t || forts.length ? `<div class="ovright" style="margin-bottom:6px">${t ? ovRow('Meilleur trio mesuré', `<span class="ovobjs">${t.objets.map(o => ovObj(o.id)).join('')}</span><span class="ovtxt">place moy. <b>${f2(t.avg)}</b> · top 4 <b>${pct(t.top4, 0)}</b> · ${int(t.n)} plateaux</span>`) : ''}${forts.length ? ovRow('Objets qui font la différence', `<span class="ovtxt">${forts.map(o => `${esc(o.nom)} <b>${ecartTxt(o.ecart)}</b>`).join(' · ')} place</span>`) : ''}</div>` : '';
+    return mesure + (holders.length ? holders.map(c => `<div class="ovlvrow"><div class="ovwho">${ovQui(c)}</div><div class="ovitems">${c.objets.map(id => `<div class="ovitem">${itemPic(id)}<div><span class="ovin">${esc(iIdx(id).nom)}</span>${recetteHtml(id, true)}</div></div>`).join('')}</div></div>`).join('') : '<p class="muted">Pas d\'objets connus.</p>');
   }
   const scout = STATE && STATE.scout, bloque = scoutBloque();
   // Échec du dernier repérage : la raison s'affiche ici, et le bouton disparaît s'il ne peut pas marcher avec cette clé
@@ -847,7 +1051,7 @@ const ovBtn = (id, sym, title, extra = '') => `<button type="button" class="ovic
 function ovHead(tierHtml, kicker, nom, btns) {
   return `<div class="ovtop" id="ovDrag" title="Glisse ici pour déplacer l'overlay">
     ${tierHtml}
-    <div class="ovttl"><small class="ovkick"><i class="ovlive"></i>${kicker}</small><b class="ovname" title="${esc(nom)}">${esc(nom)}</b></div>
+    <div class="ovttl"><small class="ovkick"><img class="ovlogo" src="tft-stats-mini.svg" alt=""><i class="ovlive"></i>${kicker}</small><b class="ovname" title="${esc(nom)}">${esc(nom)}</b></div>
     <div class="ovbtns">${btns}${ovBtn('ovClose', '✕', 'Fermer l\'overlay')}</div>
   </div>`;
 }
@@ -876,7 +1080,7 @@ function renderOverlay() {
   }
   const alpha = (STATE && STATE.settings && STATE.settings.overlayAlpha) || 170;
   const tier = ovTier(s);
-  const strip = s.plateau.slice().sort((a, b) => costOf(a.id) - costOf(b.id) || (a.objets || []).length - (b.objets || []).length).map(c => ovUnit(c)).join('');
+  const strip = ordrePlateau(s.plateau, s.carryId).map(c => ovUnit(c, false, c.id === s.carryId)).join('');
   const btns = ovBtn('ovPick', '⇄', 'Changer de compo')
     + ovBtn('ovAlpha', '◐', `Transparence de la fenêtre (${Math.round(alpha / 2.55)} %)`)
     + ovBtn('ovSmall', OVC ? '▾' : '▴', OVC ? 'Voir plus d\'informations' : 'Réduire à la compo');
@@ -1073,7 +1277,7 @@ function render() {
     $('#tab-' + TAB).innerHTML = `<div class="empty">Affichage impossible pour l'instant (${esc(e.message)}). Les données se mettent à jour : clique sur « Relancer l'analyse » dans Réglages, ou attends la fin de la collecte.</div>`;
   }
 }
-function go(tab) { EDITING = false; TAB = tab; try { localStorage.setItem('tft-tab', tab); } catch {} render(); window.scrollTo(0, 0); }
+function go(tab) { EDITING = false; TAB = tab; try { localStorage.setItem('tft-tab', tab); } catch {} render(); window.scrollTo(0, 0); document.body.scrollTo(0, 0); }
 document.addEventListener('click', e => {
   const t = e.target.closest('.tabs button'); if (t) return go(t.dataset.tab);
   const g = e.target.closest('[data-go]'); if (g) return go(g.dataset.go);
@@ -1094,8 +1298,20 @@ $('#btn-stop').onclick = () => api('/api/stop', {}).catch(() => {});
 
 async function loadStats() {
   try { STATS = await api('/api/stats'); } catch (e) { if (e.status === 404) STATS = null; }
+  // Objets cités par « Effet des objets » : ajoutés à l'index des objets (noms et images) s'ils y manquent
+  if (STATS && STATS.compos) { const ix = STATS.itemsIndex = STATS.itemsIndex || {}; for (const c of STATS.compos) { const io = c.impactObjets; if (!io) continue; for (const o of [...io.objets, ...io.trios.flatMap(t => t.objets)]) if (!ix[o.id]) ix[o.id] = { nom: o.nom, img: o.img }; } }
+  HIST = null;   // nouvelle analyse : l'historique est relu (nouvelles parties, noms des compos)
   if (TAB !== 'reglages' && !EDITING) render();
   if (!OV) try { maybeRecap(); } catch (e) { console.error(e); }
+}
+
+// Tableau de bord sous Electron : fenêtre sans cadre Windows, la page dessine sa barre de titre et son cadre
+const CADRE = !OV && /\bElectron\//.test(navigator.userAgent);
+if (CADRE) {
+  document.documentElement.classList.add('cadre');
+  for (const [id, action] of [['wc-min', 'reduire'], ['wc-max', 'agrandir'], ['wc-close', 'fermer']]) {
+    const e = $('#' + id); if (e) e.onclick = () => api('/api/fenetre', { action }).catch(() => {});
+  }
 }
 
 (async function boot() {
@@ -1105,6 +1321,7 @@ async function loadStats() {
   statsVer = STATE && STATE.statsVersion;
   try { renderStatus(); } catch (e) { console.error(e); }
   await loadAug();
+  await loadRecettes(); recVer = STATE && STATE.recettesVersion;
   loadCodes();
   augVer = STATE && STATE.augmentsVersion;
   await loadStats();
@@ -1118,7 +1335,8 @@ async function loadStats() {
     if (STATE.lobbyVersion && STATE.lobbyVersion !== lobbyVer) { lobbyVer = STATE.lobbyVersion; loadLobby().then(() => { if (live && !EDITING) render(); }); }
     else if (live && !EDITING && (JSON.stringify(STATE.suivie) !== prevSuivie || (STATE.scout && STATE.scout.statut) !== prevScout)) render();
     try { renderStatus(); } catch (e) { console.error(e); }
-    if (STATE.statsVersion && STATE.statsVersion !== statsVer) { statsVer = STATE.statsVersion; loadAug().then(loadStats).then(loadCodes); }
+    if (STATE.statsVersion && STATE.statsVersion !== statsVer) { statsVer = STATE.statsVersion; loadAug().then(loadRecettes).then(loadStats).then(loadCodes); }
+    else if (STATE.recettesVersion && STATE.recettesVersion !== recVer) { recVer = STATE.recettesVersion; loadRecettes().then(() => { if (!EDITING) render(); }); }
     else if (STATE.augmentsVersion && STATE.augmentsVersion !== augVer) { augVer = STATE.augmentsVersion; loadAug().then(() => { if (!EDITING) render(); }); }
     if (TAB === 'reglages' && prevKey !== STATE.settings.keyPresent) renderReglages();
   };

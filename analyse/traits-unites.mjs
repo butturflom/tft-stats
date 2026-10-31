@@ -1,5 +1,8 @@
 // Statistiques des traits par palier et des unités par nombre d'étoiles.
-import { MIN_N, summarize } from './outils.mjs';
+import { MIN_N, K_ELEMENT, summarize } from './outils.mjs';
+
+// Scores pondérés (analyse/ponderation.mjs) avec un retour à la moyenne presque nul : rejeu du passé, erreur plus faible d'environ un quart
+const resume = l => summarize(l, { K: K_ELEMENT, K1: K_ELEMENT });
 
 export function traitsEtUnites({ boards, names, T, U, UI }) {
   const tGroups = new Map(), uGroups = new Map();
@@ -8,11 +11,11 @@ export function traitsEtUnites({ boards, names, T, U, UI }) {
     for (const u of b.units) { const k = `${u.id}#${u.star}`; if (!uGroups.has(k)) uGroups.set(k, []); uGroups.get(k).push(b); }
   }
   const traits = [...tGroups].filter(([, l]) => l.length >= MIN_N).map(([k, l]) => {
-    const [id, tier] = k.split('#'); const s = summarize(l);
+    const [id, tier] = k.split('#'); const s = resume(l);
     return { id, trait: T(id), img: names.traitImg?.[id] || null, palier: Number(tier), unites: l[0].tr.find(t => t[0] === id)?.[1], ...s };
   }).sort((a, b) => a.avgAdj - b.avgAdj);
   const unites = [...uGroups].filter(([, l]) => l.length >= MIN_N).map(([k, l]) => {
-    const [id, star] = k.split('#'); const s = summarize(l);
+    const [id, star] = k.split('#'); const s = resume(l);
     return { id, unite: U(id), img: UI(id), etoiles: Number(star), ...s };
   }).sort((a, b) => a.avgAdj - b.avgAdj);
   return { traits, unites };

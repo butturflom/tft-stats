@@ -4,16 +4,21 @@
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { DATA, ecrireAtomique } from './lib.mjs';
-import { ouvrir } from './db.mjs';
+import { ouvrir, rangsDesParties } from './db.mjs';
 import { r2, r3, periodeDe, lireRangs, listePatchs, readJ, chargerNoms } from './analyse/outils.mjs';
 import { chargerParties, choisirPatchEtSet, filtrerParRang } from './analyse/selection.mjs';
 import { construirePlateaux } from './analyse/plateaux.mjs';
+import { ponderer } from './analyse/ponderation.mjs';
 import { construireCompos, classementParNiveau, calculerBascules, calculerDuels, contestationParCarry } from './analyse/compos.mjs';
 import { traitsEtUnites } from './analyse/traits-unites.mjs';
 import { analyserMoi } from './analyse/coaching.mjs';
 import { statsAugments, plateauxEtIndex } from './analyse/objets.mjs';
 import { rangClasse } from './analyse/rang.mjs';
+import { impactObjets } from './analyse/impact-objets.mjs';
+import { variantesDeCompos } from './analyse/variantes.mjs';
 import { bilanQualite } from './analyse/qualite.mjs';
+import { testerPrecision, resumePrecision } from './analyse/precision.mjs';
+import { annoterJoueurs, analyserBiais, resumeBiais } from './analyse/biais.mjs';
 import { afficherResume } from './analyse/resume.mjs';
 
 // Réexportés : utilisés par les tests
@@ -27,7 +32,8 @@ export async function analyse({ tous = false, quiet = false } = {}) {
   let { recs, verif, qualiteBase } = chargerParties(db);
   const choixParties = await choisirPatchEtSet(recs, { tous });
   const { toutes, journal, patch, patchRiot, patchAnalyse, patchSeul, explicite, choix, allRecs, set } = choixParties;
-  const parRang = filtrerParRang(choixParties.recs, db);
+  const rangsParties = rangsDesParties(db);   // calculé une fois, aussi pour le test de précision
+  const parRang = filtrerParRang(choixParties.recs, db, rangsParties);
   recs = parRang.recs;
   const { couverture, rangsChoisis, horsRang } = parRang;
   // Tes parties : tout le set, pas seulement la fenêtre de jours utilisée pour les autres joueurs
@@ -36,7 +42,10 @@ export async function analyse({ tous = false, quiet = false } = {}) {
   // 2. Plateaux, compos, traits, unités
   const { names, U, T, I, UI, II } = await chargerNoms();
   const { boards, byMatch, mineAll, total } = construirePlateaux(recs, mineRecs, readJ);
+  // Poids de chaque plateau dans le score des compos (patch précédent moins, parties anciennes moins) ; pas pour « tous les patchs » ni un patch choisi
+  const ponderation = ponderer(boards, { patch, actif: !tous && !explicite });
   const { comps, groups } = construireCompos({ boards, byMatch, total, U, T, I, UI, II });
+  variantesDeCompos({ comps, groups, U, UI });   // builds différents d'une même grosse compo
   const niveauxGlobal = classementParNiveau({ comps, groups, boards });
   calculerBascules(comps);
   calculerDuels({ comps, byMatch });
@@ -46,9 +55,24 @@ export async function analyse({ tous = false, quiet = false } = {}) {
   const mine = mineAll;
   const moi = analyserMoi({ mine, boards, comps, U, T, I });
   const { augLobby, plateauxAvecAugments } = statsAugments({ boards, mine, moi });
+  const impactTests = impactObjets({ comps, groups, I, II });
   const { unitsIndex, itemsIndex } = plateauxEtIndex({ comps, groups, boards, names, T, I, UI, II, traitsClient: readJ('traits-client.json', null) });
   const rang = rangClasse();
   const contestationGlobale = contestationParCarry(boards, byMatch);
+  // Biais possibles de la place moyenne : niveau des joueurs et contestation (information et correction par compo, rien n'est appliqué d'office)
+  let biais;
+  try { annoterJoueurs(boards, db); biais = analyserBiais({ boards, byMatch, comps }); } catch (e) { biais = { disponible: false, raison: 'erreur : ' + e.message }; }
+
+  // Test de précision (information seulement, il ne change aucun réglage) : tous les patchs connus du set, mêmes filtres de rang.
+  // Une erreur ici ne doit jamais empêcher la publication des statistiques.
+  // La place moyenne, puis les taux de 1re place et de top 4 (precisionTaux).
+  let precision, precisionTaux = {};
+  try {
+    const duSet = allRecs.filter(r => r.set === set && r.patch !== '?');
+    const plateauxDuSet = construirePlateaux(filtrerParRang(duSet, db, rangsParties).recs, [], readJ).boards;
+    precision = testerPrecision(plateauxDuSet);
+    for (const mesure of ['top1', 'top4']) precisionTaux[mesure] = testerPrecision(plateauxDuSet, { mesure });
+  } catch (e) { precision = { disponible: false, raison: 'erreur : ' + e.message }; }
 
   // 4. Contrôle de qualité (bloque la publication s'il échoue), puis stats.json
   const qualite = bilanQualite({ boards, recs, verif, qualiteBase, horsRang, couverture, rangsChoisis, readJ });
@@ -61,12 +85,14 @@ export async function analyse({ tous = false, quiet = false } = {}) {
     patch: patchRiot || patchSeul ? patchAnalyse : '?', patchSeul, set,
     filtre: { choix, applique: explicite || patchSeul },
     patchCourant: (() => {
-      if (patch !== '?') return { patch, source: patchRiot ? 'riot' : 'journal', depuis: (journal.find(e => e.patch === patch) || {}).vu || null };
+      if (patch !== '?') return { patch, source: patchRiot ? 'riot' : 'journal', depuis: (e => (e ? e.debut ?? e.vu : null))(journal.find(e => e.patch === patch)) };
       const dernier = journal[journal.length - 1];   // journal commencé après la dernière partie : on connaît le patch, pas encore de partie dedans
-      return dernier ? { patch: dernier.patch, source: 'journal', depuis: dernier.vu } : null;
+      return dernier ? { patch: dernier.patch, source: 'journal', depuis: dernier.debut ?? dernier.vu } : null;
     })(),
     patchs: listePatchs(toutes.filter(r => r.set === set), journal),
     patchsInconnu: toutes.filter(r => r.set === set && r.patch === '?').length,
+    // Date de chaque changement de patch : relevé du journal, et date retrouvée dans le contenu des parties quand le changement y est net
+    verifPatchs: journal.map(e => ({ patch: e.patch, vu: e.vu, debut: e.debut ?? e.vu, ecartH: e.ecartH || 0, source: e.source || 'journal', gain: e.gain ?? null, pic: e.pic ?? null })),
     parties: recs.length, plateaux: total,
     controleMoyenne: r2(boards.reduce((s, b) => s + b.p, 0) / total),
     periode: periodeDe(recs),
@@ -77,11 +103,15 @@ export async function analyse({ tous = false, quiet = false } = {}) {
     compos: comps, niveauxGlobal, traits, unites, moi,
     unitsIndex, itemsIndex, rang,
     augmentsLobby: { plateaux: plateauxAvecAugments, liste: augLobby },
+    ponderation, precision, precisionTaux, impactTests, biais,
     qualite,
   };
   ecrireAtomique(path.join(DATA, 'stats.json'), JSON.stringify(out, null, 1));
 
   afficherResume(say, { recs, total, patchRiot, patchSeul, patchAnalyse, patch, set, qualite, horsRang, couverture, out, comps, moi });
+  say(resumePrecision(precision));
+  for (const m of ['top1', 'top4']) if (precisionTaux[m]) say(resumePrecision(precisionTaux[m]));
+  say(resumeBiais(biais));
   return out;
 }
 
