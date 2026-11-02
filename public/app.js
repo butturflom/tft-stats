@@ -422,6 +422,86 @@ const debounce = (f, ms = 160) => { let t; return (...a) => { clearTimeout(t); t
 let COMPOS_LISTE = [], NIVEAU_LIGNES = [], plusObs = null;
 // Texte de recherche d'une compo (nom et champions), calculé une fois par compo
 const texteRecherche = c => c._rech || (c._rech = norm(c.nom + ' ' + c.noyau.map(u => u.nom).join(' ')));
+
+// ---- Filtres des compos : champions (tous ceux choisis), traits (tous ceux choisis), style de jeu ----
+// Communs à Mes compos, au classement par niveau et à l'overlay, et gardés dans le navigateur : l'overlay, une autre fenêtre, suit les mêmes filtres.
+let FILTRES = { champs: [], traits: [], style: '' };
+const lireFiltres = () => {
+  try {
+    const f = JSON.parse(localStorage.getItem('tft-filtres') || 'null');
+    const ids = a => (Array.isArray(a) ? a.filter(x => typeof x === 'string') : []);
+    FILTRES = f ? { champs: ids(f.champs), traits: ids(f.traits), style: ['reroll', 'niveau8', 'niveau9'].includes(f.style) ? f.style : '' } : { champs: [], traits: [], style: '' };
+  } catch {}
+};
+lireFiltres();
+const STYLES = [['', 'Tous les styles'], ['reroll', 'Reroll (carry 3 étoiles)'], ['niveau8', 'Niveau 8'], ['niveau9', 'Niveau 9 et plus']];
+const sauverFiltres = () => { try { localStorage.setItem('tft-filtres', JSON.stringify(FILTRES)); } catch {} };
+const filtresActifs = () => FILTRES.champs.length + FILTRES.traits.length + (FILTRES.style ? 1 : 0);
+// Champions d'une compo : son plateau type et les champions de son noyau joués dans au moins la moitié de ses plateaux
+const champsDe = c => c._champs || (c._champs = new Set([...(c.plateau || []).map(u => u.id), ...c.noyau.filter(u => u.freq >= 0.5).map(u => u.id)]));
+// Traits d'une compo : son trait principal et les traits actifs de son plateau au niveau 8 (traits lus dans le client LoL)
+const traitsDe = c => c._traits || (c._traits = new Map([[c.traitId, c.trait], ...((((c.niveaux || []).find(n => n.niveau === 8) || {}).synergies || []).map(s => [s.id, s.nom || s.id]))]));
+const passeFiltres = c => FILTRES.champs.every(id => champsDe(c).has(id)) && FILTRES.traits.every(id => traitsDe(c).has(id))
+  && (!FILTRES.style || (c.style && c.style.type === FILTRES.style));
+// Champions et traits proposés : ceux des compos de l'analyse, par ordre alphabétique
+function optionsFiltres() {
+  if (STATS._optF) return STATS._optF;
+  const ch = new Map(), tr = new Map();
+  for (const c of STATS.compos) {
+    for (const id of champsDe(c)) if (!ch.has(id)) ch.set(id, (uIdx(id) || { nom: id }).nom);
+    for (const [id, nom] of traitsDe(c)) if (!tr.has(id)) tr.set(id, nom);
+  }
+  const tri = m => [...m].sort((a, b) => String(a[1]).localeCompare(String(b[1]), 'fr'));
+  return (STATS._optF = { champs: tri(ch), traits: tri(tr) });
+}
+function filtresHtml(ov) {
+  if (!STATS) return '';
+  const o = optionsFiltres();
+  const nomDe = (l, id) => (l.find(x => x[0] === id) || [id, id])[1];
+  const puce = (k, id, nom) => `<button type="button" class="fchip ${k === 'c' ? 'champ' : 'trait'}" data-fsuppr="${k}:${esc(id)}" title="Retirer ce filtre" aria-label="Retirer le filtre ${esc(nom)}">${esc(nom)}<span aria-hidden="true">×</span></button>`;
+  return `<div class="filtres${ov ? ' ov' : ''}" data-filtres>
+    <input type="search" list="dl-filtres" data-fajout placeholder="${ov ? 'Champion ou trait…' : 'Filtrer par champion ou trait (plusieurs possibles)'}" aria-label="Ajouter un filtre : champion ou trait" autocomplete="off">
+    <datalist id="dl-filtres">${o.champs.map(([, n]) => `<option value="${esc(n)} · champion"></option>`).join('')}${o.traits.map(([, n]) => `<option value="${esc(n)} · trait"></option>`).join('')}</datalist>
+    <select data-fstyle aria-label="Style de jeu">${STYLES.map(([v, l]) => `<option value="${v}"${FILTRES.style === v ? ' selected' : ''}>${l}</option>`).join('')}</select>
+    ${FILTRES.champs.map(id => puce('c', id, nomDe(o.champs, id))).join('')}${FILTRES.traits.map(id => puce('t', id, nomDe(o.traits, id))).join('')}
+    ${filtresActifs() ? `<button type="button" class="ghost mini-btn" data-feffacer>Effacer les filtres</button>` : ''}
+  </div>`;
+}
+// el : l'onglet qui contient la zone de filtres ; maj : ce qu'il faut redessiner après un changement (la liste, ou tout l'onglet)
+function brancherFiltres(el, maj, ov) {
+  const zone = el.querySelector('[data-filtres]');
+  if (!zone || !STATS) return;
+  const o = optionsFiltres();
+  // Choix dans la liste : « Nom · champion » ou « Nom · trait ». Entrée sur un nom tapé en entier : le champion d'abord, sinon le trait.
+  const exacts = new Map([...o.champs.map(([id, n]) => [n + ' · champion', ['champs', id]]), ...o.traits.map(([id, n]) => [n + ' · trait', ['traits', id]])]);
+  const parNom = new Map([...o.traits.map(([id, n]) => [norm(n), ['traits', id]]), ...o.champs.map(([id, n]) => [norm(n), ['champs', id]])]);
+  const inp = zone.querySelector('[data-fajout]');
+  const changer = () => {
+    sauverFiltres();
+    const avaitFocus = document.activeElement === inp;
+    maj();
+    // La liste seule a été redessinée : la zone de filtres (puces) aussi
+    if (zone.isConnected) { const tpl = document.createElement('template'); tpl.innerHTML = filtresHtml(ov).trim(); zone.replaceWith(tpl.content.firstElementChild); brancherFiltres(el, maj, ov); }
+    if (avaitFocus) { const n = el.querySelector('[data-filtres] [data-fajout]'); if (n) n.focus(); }
+  };
+  const ajouter = x => { const [k, id] = x; if (!FILTRES[k].includes(id)) FILTRES[k].push(id); inp.value = ''; changer(); };
+  inp.addEventListener('input', () => { const x = exacts.get(inp.value); if (x) ajouter(x); });
+  inp.addEventListener('keydown', e => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    const x = exacts.get(inp.value) || parNom.get(norm(inp.value.replace(/ · (champion|trait)$/, '')));
+    if (x) ajouter(x);
+  });
+  zone.querySelector('[data-fstyle]').onchange = e => { FILTRES.style = e.target.value; changer(); };
+  zone.querySelectorAll('[data-fsuppr]').forEach(b => b.onclick = () => {
+    const k = b.dataset.fsuppr.slice(0, 1) === 'c' ? 'champs' : 'traits', id = b.dataset.fsuppr.slice(2);
+    FILTRES[k] = FILTRES[k].filter(x => x !== id); changer();
+  });
+  const ef = zone.querySelector('[data-feffacer]');
+  if (ef) ef.onclick = () => { FILTRES = { champs: [], traits: [], style: '' }; changer(); };
+}
+// Filtres changés dans une autre fenêtre (tableau de bord ou overlay) : on les reprend
+window.addEventListener('storage', e => { if (e.key === 'tft-filtres') { lireFiltres(); if (STATS) render(); } });
 const compDe = cle => STATS && STATS.compos.find(x => x.cle === cle);
 
 // Sections d'une carte : leur contenu n'est construit qu'à la première ouverture (153 cartes × 3 sections = des milliers de noeuds en moins)
@@ -521,7 +601,7 @@ function composFiltrees() {
   const key = { top1Adj: c => -c.top1Adj, top4: c => -(c.top4Adj ?? c.top4), avgAdj: c => c.avgAdj, n: c => -c.n }[UI.sort];
   // Jamais de compo sous le seuil MIN_N de l'analyse (30 plateaux), même si le filtre est plus bas
   const minN = Math.max(UI.minN, ((STATS.qualite && STATS.qualite.seuils) || {}).minN || 30);
-  return STATS.compos.filter(c => c.n >= minN && (!q || texteRecherche(c).includes(q))).sort((a, b) => key(a) - key(b));
+  return STATS.compos.filter(c => c.n >= minN && (!q || texteRecherche(c).includes(q)) && passeFiltres(c)).sort((a, b) => key(a) - key(b));
 }
 // Remplace seulement la liste (pas la barre d'outils) : la frappe dans la recherche reste fluide, le focus n'est pas touché
 function majListeCompos() {
@@ -530,7 +610,7 @@ function majListeCompos() {
   const n = Math.min(UI.cnt, COMPOS_LISTE.length);
   zone.innerHTML = COMPOS_LISTE.length
     ? COMPOS_LISTE.slice(0, n).map(compCard).join('') + plusHtml('compos', COMPOS_LISTE.length - n)
-    : '<div class="empty">Aucune compo ne correspond. Baisse la taille minimale ou attends plus de parties.</div>';
+    : `<div class="empty">Aucune compo ne correspond. ${filtresActifs() ? 'Retire un filtre, ' : ''}Baisse la taille minimale ou attends plus de parties.</div>`;
   hydrater(zone); observerPlus();
 }
 function renderCompos() {
@@ -549,8 +629,10 @@ function renderCompos() {
       <select id="minN" aria-label="Taille minimale">${[[30, '30 plateaux et plus'], [100, '100 plateaux et plus'], [300, '300 plateaux et plus']].map(([v, l]) => `<option value="${v}" ${UI.minN == v ? 'selected' : ''}>${l}</option>`).join('')}</select>
       <select id="sort" aria-label="Trier">${[['top1Adj', 'Plus de 1res places'], ['top4', 'Plus de top 4'], ['avgAdj', 'Meilleure place moyenne'], ['n', 'Plus jouées']].map(([v, l]) => `<option value="${v}" ${UI.sort === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
     </div>
+    ${filtresHtml()}
     <div class="list" id="listeCompos"></div>`;
   majListeCompos();
+  brancherFiltres(el, () => { UI.cnt = PAGE; majListeCompos(); });
   OUVRIR = null;
   const rechercher = debounce(() => { UI.cnt = PAGE; majListeCompos(); });
   $('#q').oninput = e => { UI.q = e.target.value; rechercher(); };
@@ -601,7 +683,7 @@ function renderClassementNiveaux() {
   if (!niveaux.length) { el.innerHTML = `<h2>Classement par niveau</h2><div class="empty">Pas encore de données par niveau : relance l'analyse dans Réglages.</div>`; return; }
   if (!glob[UI.nl]) UI.nl = niveaux[niveaux.length - 1];
   const g = glob[UI.nl], q = norm(UI.nq), [cle, sens] = NIV_TRI[UI.nsort] || NIV_TRI.top4Low;
-  const lignes = STATS.compos.filter(c => c.parNiveau && c.parNiveau[UI.nl] && c.parNiveau[UI.nl].n >= UI.nmin && (!q || norm(c.nom + ' ' + c.noyau.map(u => u.nom).join(' ')).includes(q)))
+  const lignes = STATS.compos.filter(c => c.parNiveau && c.parNiveau[UI.nl] && c.parNiveau[UI.nl].n >= UI.nmin && (!q || texteRecherche(c).includes(q)) && passeFiltres(c))
     .map(c => ({ c, s: c.parNiveau[UI.nl] })).sort((a, b) => sens * (cle(a.s) - cle(b.s)) || b.s.n - a.s.n);
   const dispo = STATS.compos.filter(c => c.parNiveau && c.parNiveau[UI.nl]).length;
   el.innerHTML = `<h2>Classement par niveau</h2>
@@ -612,10 +694,11 @@ function renderClassementNiveaux() {
     <div class="facts"><span><b>${int(g.plateaux)}</b> plateaux finis au niveau ${UI.nl}</span><span>place moyenne <b>${f2(g.avg)}</b></span><span>1re place <b>${pct(g.top1)}</b></span><span>top 4 <b>${pct(g.top4, 0)}</b></span></div>
     <div class="toolbar">
       ${patchSelectHtml()}
-      <input type="search" id="nq" placeholder="Chercher une compo" value="${esc(UI.nq)}" aria-label="Rechercher">
+      <input type="search" id="nq" placeholder="Chercher une compo ou un champion" value="${esc(UI.nq)}" aria-label="Rechercher">
       <select id="nmin" aria-label="Taille minimale">${[[1, '1 plateau et plus'], [3, '3 plateaux et plus'], [5, '5 plateaux et plus'], [10, '10 plateaux et plus'], [20, '20 plateaux et plus'], [50, '50 plateaux et plus'], [100, '100 plateaux et plus']].map(([v, l]) => `<option value="${v}" ${UI.nmin == v ? 'selected' : ''}>${l}</option>`).join('')}</select>
       <select id="nsort" aria-label="Trier">${[['top4Low', 'Fiabilité : borne basse du top 4'], ['top1Low', 'Fiabilité : borne basse de la 1re place'], ['avgAdj', 'Meilleure place moyenne'], ['top1Adj', 'Plus de 1res places'], ['top4Adj', 'Plus de top 4'], ['atteint', 'Taux d\'atteinte du niveau'], ['bas', 'Moins de places 7-8'], ['n', 'Plus jouées à ce niveau']].map(([v, l]) => `<option value="${v}" ${UI.nsort === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
     </div>
+    ${filtresHtml()}
     <div class="tablewrap"><table><thead><tr><th class="n">#</th><th>Composition au niveau ${UI.nl}</th><th class="n">Plateaux</th><th class="n">1re place</th><th class="n">Top 4</th><th class="n">Place moy.</th><th class="n" title="Place moyenne corrigée (retour à la moyenne du niveau) moins la moyenne du niveau">Écart</th><th class="n" title="Part des plateaux de la compo qui finissent à ce niveau ou plus">Atteint ${UI.nl}+</th><th>Répartition</th><th></th></tr></thead>
     <tbody id="corpsNiveau"></tbody></table></div>`;
   NIVEAU_LIGNES = lignes; UI.ncnt = Math.max(UI.ncnt, PAGE_NIVEAU);
@@ -625,6 +708,7 @@ function renderClassementNiveaux() {
   $('#nq').oninput = e => { UI.nq = e.target.value; chercher(); };
   $('#nmin').onchange = e => { UI.nmin = Number(e.target.value); UI.ncnt = PAGE_NIVEAU; renderClassementNiveaux(); };
   $('#nsort').onchange = e => { UI.nsort = e.target.value; UI.ncnt = PAGE_NIVEAU; renderClassementNiveaux(); };
+  brancherFiltres(el, () => { UI.ncnt = PAGE_NIVEAU; renderClassementNiveaux(); });
   observerPlus();
 }
 // « Voir la compo » : l'onglet Mes compos filtré sur cette compo, section par niveau ouverte au niveau choisi
@@ -1069,7 +1153,7 @@ function renderOverlay() {
   const s = suivie();
   if (!s || OVPICK) {
     // Toutes les compos disponibles (celles de « Mes compos »), dix par page, dans l'ordre du classement
-    const toutes = STATS.compos, pages = Math.max(1, Math.ceil(toutes.length / OV_PAGE));
+    const toutes = STATS.compos.filter(passeFiltres), pages = Math.max(1, Math.ceil(toutes.length / OV_PAGE));
     OVPAGE = Math.min(Math.max(OVPAGE, 0), pages - 1);
     const debut = OVPAGE * OV_PAGE;
     const ligne = (c, i) => s && s.cle === c.cle
@@ -1077,7 +1161,9 @@ function renderOverlay() {
       : `<button type="button" class="ovchoice" data-suivre="${esc(c.cle)}" data-suivre-type="our"><b><em>${i + 1}</em>${esc(c.nom)}</b><span>${pct(c.top1Adj, 0)} de 1res · top 4 ${pct(c.top4, 0)} · ${int(c.n)} plateaux</span></button>`;
     const pager = pages > 1 ? `<div class="ovpager">${ovBtn('ovPrev', '‹', 'Page précédente', OVPAGE === 0 ? ' disabled' : '')}<span>Page ${OVPAGE + 1} / ${pages}<small>compos ${debut + 1} à ${Math.min(debut + OV_PAGE, toutes.length)} sur ${toutes.length}</small></span>${ovBtn('ovNext', '›', 'Page suivante', OVPAGE >= pages - 1 ? ' disabled' : '')}</div>` : '';
     el.innerHTML = `<div class="hud"><div class="hud-in">${ovHead('', 'Sélection', 'Choisis ta compo', s ? ovBtn('ovBack', '←', 'Retour') : '')}
-      <div class="ovpick">${toutes.slice(debut, debut + OV_PAGE).map((c, i) => ligne(c, debut + i)).join('')}</div>${pager}</div></div>`;
+      ${filtresHtml(true)}
+      <div class="ovpick">${toutes.length ? toutes.slice(debut, debut + OV_PAGE).map((c, i) => ligne(c, debut + i)).join('') : '<p class="ovtxt muted">Aucune compo avec ces filtres.</p>'}</div>${pager}</div></div>`;
+    brancherFiltres(el, () => { OVPAGE = 0; render(); }, true);
     el.querySelectorAll('#ovBack,[data-ovback]').forEach(b => b.onclick = () => { OVPICK = false; render(); });
     el.querySelectorAll('[data-suivre]').forEach(b => b.addEventListener('click', () => { OVPICK = false; }));
     const aller = d => () => { OVPAGE += d; render(); };

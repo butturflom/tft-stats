@@ -30,6 +30,18 @@ export function priorParents(groups, mesure = 'avg', { niveau = null, base: base
   };
 }
 
+// Style de jeu d'une compo, d'après ses plateaux du top 4 (tous s'il y en a moins de MIN_STYLE) :
+//   - reroll : le carry y est à 3 étoiles au moins une fois sur deux. Mesuré sur 490 compos : cette part se répartit en deux groupes nets
+//     (presque 0 pour 315 compos, plus de 50 % pour 142), rien ou presque entre les deux ;
+//   - sinon niveau9 si au moins la moitié de ces plateaux atteignent le niveau 9, niveau8 sinon.
+const MIN_STYLE = 10, SEUIL_REROLL = 0.5, SEUIL_NIVEAU9 = 0.5;
+export function styleDe(list) {
+  const t4 = list.filter(b => b.p <= 4), ref = t4.length >= MIN_STYLE ? t4 : list;
+  if (!ref.length) return null;
+  const carry3 = ref.filter(b => b.carry && b.carry.star >= 3).length / ref.length, niveau9 = ref.filter(b => b.lvl >= 9).length / ref.length;
+  return { type: carry3 >= SEUIL_REROLL ? 'reroll' : niveau9 >= SEUIL_NIVEAU9 ? 'niveau9' : 'niveau8', carry3: r2(carry3), niveau9: r2(niveau9) };
+}
+
 // Une compo par groupe de plateaux de même clé, avec au moins MIN_N plateaux
 export function construireCompos({ boards, byMatch, total, U, T, I, UI, II }) {
   const groups = new Map();
@@ -82,6 +94,7 @@ export function construireCompos({ boards, byMatch, total, U, T, I, UI, II }) {
       cle: key, nom: `${T(main)} ${U(carryId)}`, trait: T(main), traitId: main, carry: U(carryId), carryId, carryImg: UI(carryId),
       part: r3(list.length / total), ...st,
       niveauMoyen: r2(list.reduce((s, b) => s + b.lvl, 0) / list.length),
+      style: styleDe(list),
       noyau: units,
       objetsCarry: objets,
       trioCarry: trio ? { objets: trio[0].split('+').map(id => ({ id, nom: I(id), img: II(id) })), part: r2(trio[1] / W) } : null,

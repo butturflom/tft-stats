@@ -29,7 +29,7 @@ Application locale pour Windows. Elle collecte les parties classées TFT (EUW) v
 | `securite.mjs` | Parties sensibles du serveur, sorties de `app.mjs` pour être testées : chemin des fichiers servis (reste dans `public/`), lecture bornée des corps de requête, Riot ID et valeurs de `.env` sans saut de ligne, Content-Security-Policy et en-têtes de sécurité de toutes les réponses | | |
 | `collecter.mjs` | Lit le classement des rangs choisis (Challenger, GM, Master, puis divisions paginées), récupère les parties des joueurs via la file de jobs, compacte, historise ton rang | API Riot, `tft.db` | `tft.db`, `data/rang.jsonl`, `data/collecte.lock` |
 | `db.mjs` | Base SQLite : parties, participants, rangs relevés, rang de chaque partie au moment où elle a été jouée, file de jobs, budget horaire, import de l'ancien `parties.jsonl`, export, sauvegarde quotidienne (`sauvegarder()` : copie par `VACUUM INTO`, vérifiée, 7 gardées) | `data/parties.jsonl` (une fois) | `data/tft.db`, `data/sauvegardes/tft-AAAA-MM-JJ.db` |
-| `analyser.mjs` | Enchaîne les étapes de l'analyse (dossier `analyse/`) dans l'ordre, bloque la publication si le contrôle échoue, écrit `stats.json` | `tft.db`, `rang.jsonl`, `noms.json`, `augments-fr.json`, `app-etat.json` | `data/stats.json` (format 19), `data/qualite.json` |
+| `analyser.mjs` | Enchaîne les étapes de l'analyse (dossier `analyse/`) dans l'ordre, bloque la publication si le contrôle échoue, écrit `stats.json` | `tft.db`, `rang.jsonl`, `noms.json`, `augments-fr.json`, `app-etat.json` | `data/stats.json` (format 20), `data/qualite.json` |
 | `analyse/` | Une étape de l'analyse par fichier : `selection.mjs` (lecture et contrôle des parties, patch, set, rang au moment de la partie), `plateaux.mjs` (plateau de chaque joueur : carry, trait principal, augments), `compos.mjs` (compos, classement par niveau, bascules, duels, contestation ; place moyenne, taux de 1re place et de top 4 ajustés : pondérés et ramenés vers les compos de même carry et de même trait principal, `priorParents`, réglages `MESURES` de `outils.mjs` ; le noyau, les objets du carry, le classement par niveau et les duels utilisent les mêmes poids, §5 point 21), `ponderation.mjs` (poids de chaque plateau dans le score des compos : un patch précédent compte `ANCIEN_PATCH` = 0,25, le poids est divisé par 2 tous les `DEMI_VIE_J` = 3 jours ; réglages de `outils.mjs`, choisis par `precision.mjs` ; seuls les scores `avgAdj`, `top1Adj` et `top4Adj` sont pondérés, les chiffres affichés (`n`, `avg`, `top4`) restent bruts ; inactif pour « tous les patchs » ou un patch choisi), `variantes.mjs` (builds d'une compo très jouée, trouvés par k-means sur les champions sans regarder la place ; section « variantes » de la compo, les clés ne changent pas), `traits-unites.mjs`, `coaching.mjs` (tes parties, coaching, récap), `objets.mjs` (augments, plateau type, index des champions et des objets), `biais.mjs` (niveau des joueurs et contestation : effet sur la place moyenne à compo égale, correction par compo `corrige`, verdict négligeable / à corriger ; rien n'est appliqué d'office), `impact-objets.mjs` (effet des objets du carry : avec / sans, à carry complet ; verdict après correction des comparaisons multiples, Benjamini-Hochberg à 5 %), `patch-contenu.mjs` (date réelle d'un changement de patch retrouvée dans le contenu des parties), `precision.mjs` (test de précision : rejeu du passé, compare les réglages du score, sans rien modifier), `rang.mjs` (historique des LP), `qualite.mjs` (bilan et blocage), `resume.mjs` (console), `outils.mjs` (seuils, résumé statistique, patchs, relevés de rang, noms). Les étapes se complètent dans l'ordre : l'ordre des appels de `analyser.mjs` fixe celui des clés de `stats.json` | voir `analyser.mjs` | |
 | `images.mjs` | Images de l'interface servies par l'appli (`/img/...`) avec cache disque : icônes carrées des champions lues dans le client LoL, repli et autres images sur Data Dragon | `data/icones/`, `data/noms.json` | `data/icones/dd/` |
 | `analyse-worker.mjs` | Fil séparé qui exécute l'analyse (plusieurs secondes de calcul) sans figer le serveur | `tft.db` | `data/stats.json` |
@@ -73,7 +73,7 @@ API Riot (europe / euw1)            Client LoL local (lockfile)        Data Drag
   analyser.mjs ◄── valider.mjs · rang au moment de la partie · noms, augments
         │  filtre patch/set/rang · statistiques (Wilson, a priori) · compos · rang
         ▼
-  data/stats.json (format 19) + data/qualite.json
+  data/stats.json (format 20) + data/qualite.json
         │
         ▼
   app.mjs : HTTP 127.0.0.1:3777, orchestrateur
@@ -125,7 +125,7 @@ Mode WAL et `busy_timeout` de 5 s : l'application et `collecter.bat` peuvent éc
 - `seed` : rang de la division d'où vient le joueur **au moment de la collecte**, `MOI` ou `LOBBY`. Sert de repli quand le rang au moment de la partie est inconnu (§5, point 2).
 - **Aucun PUUID dans le JSON** (ni dans `stats.json`, ni dans l'export), sauf l'indicateur `me`. Les PUUID sont dans les tables `participants` et `rangs`, en local, pour dater le rang de chaque partie.
 
-### `stats.json` (format 19)
+### `stats.json` (format 20)
 
 Champs de premier niveau : `format`, `patch`, `set`, `parties`, `plateaux`, `controleMoyenne`, `periode`, `rangs`, `sansCarry`, `ddragon` (version des données Data Dragon utilisée), `contestationGlobale`, `compos`, `traits`, `unites`, `moi`, `unitsIndex`, `itemsIndex`, `rang`, `augmentsLobby`, `qualite`. Ajouts sans changement de format : `precision` (rejeu du passé, place moyenne) et `precisionTaux` (même test pour `top1` et `top4`), `biais`, `impactTests`, `verifPatchs`, `ponderation` (`actif`, `ancien`, `demiVieJours`, `patch`, `plateaux`, `plateauxAnciens`, `plateauxUtiles`) ; chaque compo gagne `nUtile` (plateaux utiles une fois pondérés), `top4Adj` (taux de top 4 pondéré et ramené vers ses voisines, sert au tri « Plus de top 4 »), `priorAvg` et, pour les grosses compos, `variantes`. `parNiveau` gagne `top4Adj` et `nUtile` ; `niveauxGlobal` gagne `avgPond`, `top1Pond` et `top4Pond` (repères du niveau pondérés) ; les fréquences du noyau (`freq`, `freqGagnants`), des objets du carry (`part`) et du plateau type, la part `devant` des duels, `avgAdj` et `top1Adj` des traits et des champions sont pondérés (§5, point 21).
 
@@ -152,6 +152,8 @@ Format 17 (28/10/2026) : si `data/traits-client.json` existe, chaque entrée de 
 Format 18 (31/10/2026) : chaque entrée de `parNiveau` gagne `unites` (`[{ id, etoiles }]`, champions les plus joués par les plateaux finis à ce niveau, ceux que comptent les statistiques de la ligne) : le classement par niveau montrait le plateau conseillé de `niveaux`, reconstitué sous le niveau 8, à côté de chiffres qui décrivent d'autres plateaux. Une entrée de `niveaux` peut porter `grosPassage` (le passage qui achète le plus de champions, 3 au moins, le premier en cas d'égalité) : le message s'affichait dès 3 achats, à tort sur 74 passages. `app.mjs` relance l'analyse si le format lu est inférieur à 18.
 
 Format 19 (31/10/2026) : aux niveaux 4 à 7, `objets` suit le repère `objetsRepere` et peut être sur un gardien (`pour` : porteur final dont il garde les objets) ; une entrée de `niveaux` peut porter `transferts` (`[{ de, vers, pour, objets }]`). Calcul : §5, point 22. `app.mjs` relance l'analyse si le format lu est inférieur à 19.
+
+Format 20 (03/11/2026) : chaque compo gagne `style` (`{ type: 'reroll' | 'niveau8' | 'niveau9', carry3, niveau9 }`, `styleDe` dans `analyse/compos.mjs`, §5, point 24). `app.mjs` relance l'analyse si le format lu est inférieur à 20.
 
 Incrémenter `format` à chaque changement de structure.
 
@@ -265,11 +267,15 @@ Sous Electron, `/api/overlay` accepte toujours `forme` et `bouger` mais ne les t
     - **Réglage de `BONUS_GARDIEN`**, sur 391 compos. Transferts où le gardien part à l'arrivée du porteur : 134 sans bonus, 199 avec 0,1, 256 avec 0,3, 295 avec 0,6. Relais d'un gardien à un autre : 34, 27, 17, 12. Gardiens dont aucun objet n'est parmi leurs objets habituels : 50 %, 50 %, 52 %, 56 %. Retenu : 0,3.
     - **Limite.** Un gardien sur deux ne porte pas habituellement ces objets : beaucoup de champions bon marché n'ont presque rien en fin de partie, le choix est alors un choix par défaut. Le conseil n'est pas validable directement : par définition, un plateau d'une compo contient déjà son carry.
     - Tests : `tests/niveaux.test.mjs` (repère, ordre de pose, gardien habitué, transferts, gardien vendu, emblèmes, préférence au départ).
-23. **Corrections de la relecture du 31/10/2026.** Classement par niveau : chaque ligne montre maintenant les champions des plateaux qu'elle compte (`plateauObserve`), et non le plateau conseillé. Message du plus gros passage : un seul par compo (`grosPassage`), il était faux sur 74 passages. Tests ajoutés : `tests/historique.test.mjs`, `tests/recettes.test.mjs`, `/api/fenetre`, `/api/historique` et `/api/recettes` dans `tests/routes.test.mjs`. `majRecettes` respecte `TFT_HORS_LIGNE`. Reste connu : la précision affichée suppose un ancien patch compté à 25 %, or `PATCH=courant` l'exclut (erreur réelle 0,27 au lieu de 0,256) ; décision laissée à l'utilisateur.
+23. **Corrections de la relecture du 31/10/2026.** Classement par niveau : chaque ligne montre maintenant les champions des plateaux qu'elle compte (`plateauObserve`), et non le plateau conseillé. Message du plus gros passage : un seul par compo (`grosPassage`), il était faux sur 74 passages. Tests ajoutés : `tests/historique.test.mjs`, `tests/recettes.test.mjs`, `/api/fenetre`, `/api/historique` et `/api/recettes` dans `tests/routes.test.mjs`. `majRecettes` respecte `TFT_HORS_LIGNE`. La précision affichée supposait un ancien patch compté à 25 %, alors que `PATCH=courant` l'excluait (erreur réelle 0,27 au lieu de 0,256) : l'utilisateur a vidé `PATCH` le 03/11/2026.
+24. **Filtres des compos (03/11/2026).** Demande de l'utilisateur : chercher par champions et par « type ». Filtres choisis avec lui : champions (plusieurs à la fois, tous requis), traits (tous requis) et style de jeu, dans Mes compos, le classement par niveau et la sélection de l'overlay.
+    - **Interface (`public/app.js`).** Un champ unique propose les champions et les traits des compos analysées (liste du navigateur, « Nom · champion » ou « Nom · trait », ou un nom tapé puis Entrée : le champion d'abord) ; chaque filtre devient une puce qu'on retire d'un clic. Les filtres sont gardés dans le navigateur (`localStorage`, clé `tft-filtres`) et communs aux trois endroits ; l'événement `storage` fait suivre l'overlay, une autre fenêtre. Champions d'une compo : son plateau type et les champions de son noyau joués dans au moins la moitié de ses plateaux. Traits : le trait principal et les traits actifs du plateau au niveau 8 (traits du client LoL). La recherche du classement par niveau trouve aussi les champions, comme celle de Mes compos.
+    - **Style (`styleDe`).** Sur les plateaux du top 4 de la compo (tous s'il y en a moins de 10) : reroll si le carry est à 3 étoiles au moins une fois sur deux, sinon niveau 9 si au moins la moitié atteignent le niveau 9, sinon niveau 8. Mesuré sur 490 compos : la part de carry à 3 étoiles se répartit en deux groupes nets (presque 0 pour 315 compos, plus de 50 % pour 142). Sur les données du 31/10 : 113 reroll, 72 niveau 8, 206 niveau 9.
+    - Tests : `tests/style.test.mjs`. Les filtres de l'interface ont été vérifiés dans le navigateur sur une copie des données (combinaisons, puces, mémorisation, classement, overlay et synchronisation entre fenêtres).
 
 ## 6. Trajectoire proposée
 
-**Où en est le projet** (mis à jour le 31/10/2026) :
+**Où en est le projet** (mis à jour le 03/11/2026) :
 
 | Étape | État | Où |
 |---|---|---|
@@ -283,10 +289,11 @@ Sous Electron, `/api/overlay` accepte toujours `forme` et `bouger` mais ne les t
 | Synergies des petits niveaux : traits du client LoL, choix des niveaux 4 à 7 selon les paliers actifs | Faite (28/10), 137 tests | §5, point 20 |
 | Précision des analyses : poids par patch et par âge, retours à la moyenne mesurés pour les compos, niveaux, traits, champions, duels, fréquences | Faite (31/10), 16 tests de plus | §5, point 21 |
 | Objets en début de partie : gardiens, repère par niveau, transferts ; corrections de la relecture | Faits (31/10) | §5, points 22 et 23 |
+| Filtres des compos : champions, traits, style de jeu (reroll, niveau 8, niveau 9) | Faits (03/11) | §5, point 24 |
 | Phase 5 : publication grand public | Abandonnée (28/10) : l'application reste pour un usage personnel | §7 |
 | Phase 4 : couche LLM | Non commencée, facultative | ci-dessous |
 
-**Prochaine action** : essayer en jeu les compos par niveau et les objets en début de partie, puis décider du réglage `PATCH` (§5, point 23).
+**Prochaine action** : essayer en jeu les compos par niveau, les objets en début de partie et les filtres.
 
 **Principe** : faire évoluer le code existant, sans le réécrire. L'application fonctionne, elle a déjà 4 900 parties et une logique métier riche (compos, objets, rang, lobby, récap). Une réécriture en Electron ou TypeScript ne résoudrait pas les vrais problèmes (échantillonnage, validation, stockage).
 
