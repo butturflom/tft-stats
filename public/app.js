@@ -221,6 +221,43 @@ function boardHtml(units, carryId) {
     return `<div class="u ${k ? 'k' + k : ''}${carry ? ' carry' : ''}">${stars ? `<em>${stars}</em>` : ''}${carry ? '<span class="ctag" title="Carry principal de la compo">carry</span>' : ''}<i title="${esc(u.nom)}">${unitPic(u.nom, u.img)}</i><span class="un">${esc(u.nom)}</span><span class="hit">${(c.objets || []).slice(0, 3).map(itemPic).join('')}</span></div>`;
   }).join('')}</div>`;
 }
+// ---- Disposition proposée : Riot ne publie pas la position des champions. Plateau de 4 rangées de 7 cases, la rangée 0 face à
+// l'adversaire. Tanks devant en partant du centre ; carry dans un coin du fond, les autres champions à dégâts au fond à côté ;
+// rôle inconnu au milieu. Rôle d'un champion : les objets qu'il porte à ce niveau, sinon ceux qu'il porte en fin de partie (unitsIndex).
+const ORDRE_CASES = { devant: [3, 2, 4, 1, 5, 0, 6], fond: [0, 1, 6, 5, 2, 4, 3], milieu: [3, 2, 4, 1, 5, 0, 6] };
+function roleAuNiveau(u) {
+  const o = (u.objets || []).filter(it => !/Component_|Emblem|Artifact|Radiant|Tacticians/i.test(it));
+  if (o.length) { const def = o.filter(it => (iIdx(it) || {}).def).length; return def * 2 >= o.length ? 'tank' : 'degats'; }
+  return (uIdx(u.id) || {}).role || null;
+}
+function disposition(unites, carryId) {
+  const cases = Array.from({ length: 4 }, () => Array(7).fill(null));
+  const poser = (u, rangees, ordre) => { for (const r of rangees) for (const c of ordre) if (!cases[r][c]) { cases[r][c] = u; return true; } return false; };
+  const tri = unites.slice().sort((a, b) => (b.id === carryId) - (a.id === carryId) || (b.objets || []).length - (a.objets || []).length || costOf(b.id) - costOf(a.id));
+  for (const u of tri) {
+    const r = u.id === carryId ? 'degats' : roleAuNiveau(u);
+    if (r === 'tank') poser(u, [0, 1, 2, 3], ORDRE_CASES.devant);
+    else if (r === 'degats') poser(u, [3, 2, 1, 0], ORDRE_CASES.fond);
+    else poser(u, [2, 1, 3, 0], ORDRE_CASES.milieu);
+  }
+  return cases;
+}
+function dispositionHtml(unites, carryId) {
+  const cases = disposition(unites, carryId);
+  const hex = u => {
+    if (!u) return '<span class="dhx vide"></span>';
+    const i = uIdx(u.id) || { nom: u.id, img: null };
+    return `<span class="dhx k${costOf(u.id)}${u.id === carryId ? ' carry' : ''}" title="${esc(i.nom + (u.id === carryId ? ' (carry)' : ''))}">${unitPic(i.nom, i.img)}</span>`;
+  };
+  return `<div class="dispo" role="img" aria-label="Disposition proposée : tanks devant, carry dans un coin du fond">
+    <small class="dispo-cote">Devant, face à l'adversaire</small>
+    ${cases.map((rangee, r) => `<div class="dhxr${r % 2 ? ' dec' : ''}">${rangee.map(hex).join('')}</div>`).join('')}
+    <small class="dispo-cote">Fond</small>
+  </div>`;
+}
+let DISPO = false;
+try { DISPO = localStorage.getItem('tft-dispo') === '1'; } catch {}
+
 // Ordre d'affichage d'un plateau : carry, autres porteurs d'objets, puis le reste du moins cher au plus cher
 const ordrePlateau = (units, carryId) => (units || []).slice().sort((a, b) => (b.id === carryId) - (a.id === carryId)
   || (b.objets || []).length - (a.objets || []).length || costOf(a.id) - costOf(b.id));
@@ -273,7 +310,8 @@ function niveauxHtml(c, ov) {
     ${gardiens ? `<p class="nivgarde${ov ? ' ovtxt' : ''}">${gardiens}</p>` : ''}
     ${passageComplet ? `<p class="nivpassage${ov ? ' ovtxt' : ''}">${passageComplet}</p>` : ''}
     <p class="nivnote ${ov ? 'ovtxt' : 'muted'}"><small>${esc(note)}</small></p>
-    <div class="row nivcopy">${copieBtn(c, cur, ov)}<span class="copie-etat" aria-live="polite"></span></div>
+    <div class="row nivcopy">${copieBtn(c, cur, ov)}<button type="button" class="${ov ? 'ovicon' : 'ghost mini-btn'}" data-dispo aria-pressed="${DISPO}">${DISPO ? 'Masquer la disposition' : 'Disposition proposée'}</button><span class="copie-etat" aria-live="polite"></span></div>
+    ${DISPO ? `${dispositionHtml(n.unites, c.carryId)}<p class="nivnote ${ov ? 'ovtxt' : 'muted'}"><small>Disposition proposée, pas mesurée : Riot ne publie pas la position des champions. Tanks (ceux qui portent surtout des objets défensifs) devant, carry dans un coin du fond, autres champions à dégâts au fond. Les objets ne disent pas qui se bat au corps à corps : place un assassin ou un carry de mêlée plus près de l'avant, et adapte selon le plateau adverse.</small></p>` : ''}
   </div>`;
 }
 function copierTexte(t) {
@@ -301,6 +339,14 @@ function majNiveaux(cle) {
 document.addEventListener('click', async e => {
   const n = e.target.closest('[data-niv]');
   if (n) { NIV[n.dataset.nivCle] = Number(n.dataset.niv); majNiveaux(n.dataset.nivCle); return; }
+  const d = e.target.closest('[data-dispo]');
+  if (d) {
+    DISPO = !DISPO;
+    try { localStorage.setItem('tft-dispo', DISPO ? '1' : '0'); } catch {}
+    const box = d.closest('.nivbox');
+    if (box) majNiveaux(box.dataset.cle);
+    return;
+  }
   const b = e.target.closest('[data-copie]');
   if (!b) return;
   const cle = b.dataset.copie, niv = b.dataset.copieNiv;
@@ -934,7 +980,9 @@ function renderAugments() {
   const nCat = Object.keys(AUG.augments).length;
   const table = list => `<div class="tablewrap" style="margin-top:10px"><table><thead><tr><th>Augment</th><th class="n">Parties</th><th class="n">Place moy.</th><th class="n">Top 4</th><th class="n">1re</th></tr></thead>
     <tbody>${list.map(x => `<tr><td>${augChip(x.id, true)}</td><td class="n">${x.n}</td><td class="n">${f2(x.avg)}</td><td class="n">${pct(x.top4, 0)}</td><td class="n">${pct(x.top1, 0)}</td></tr>`).join('')}</tbody></table></div>`;
-  const clientTxt = !cl ? '—' : cl.connecte ? (cl.avecAugments ? `${cl.avecAugments} parties lues avec augments` : (cl.note || 'connecté')) : cl.note;
+  const jeu = STATE && STATE.jeu;
+  const clientTxt = !cl ? '—' : cl.connecte ? (cl.avecAugments ? `${cl.avecAugments} parties lues avec augments` : (cl.note || 'connecté'))
+    : jeu && jeu.dossier ? 'Client TFT seul : il ne donne pas les augments, saisis-les dans « Mes parties »' : cl.note;
   el.innerHTML = `<h2>Augments</h2>
     <p class="lead">Noms et descriptions officiels en français (Data Dragon). Riot ne publie pas les augments choisis dans ses données de parties : tes stats viennent des augments que tu saisis dans « Mes parties » (ou que le client LoL fournit). Touche un augment pour lire son effet.</p>
     <div class="cards3">
@@ -1339,6 +1387,7 @@ function renderReglages() {
       <p class="lead">L'application tourne en arrière-plan tant qu'elle est ouverte. Fermer la fenêtre ne l'arrête pas : utilise « Quitter » pour la fermer complètement.</p>
       <div class="row"><button type="button" class="ghost" id="reanalyse">Relancer l'analyse</button><button type="button" class="ghost" id="quit">Quitter l'application</button></div>
       <p class="muted">${STATE.sauvegarde ? `Sauvegarde de tes parties : ${esc(STATE.sauvegarde.fichier)}, ${esc(ago(new Date(STATE.sauvegarde.t).toISOString()))} (${int(STATE.sauvegarde.nombre)} gardée${STATE.sauvegarde.nombre > 1 ? 's' : ''} dans data/sauvegardes).` : 'Sauvegarde de tes parties : la première est faite quelques minutes après le lancement, puis une par jour (7 gardées, dans data/sauvegardes).'}</p>
+      ${jeuHtml()}
     </div>`;
   $('#form').onsubmit = async e => {
     e.preventDefault();
@@ -1357,6 +1406,18 @@ function renderReglages() {
   $('#ovNow').onclick = () => api('/api/overlay', { taille: s.overlayCompact ? 'compact' : 'complet' }).catch(err => { $('#msg').className = 'err-msg'; $('#msg').textContent = err.message; });
   $('#reanalyse').onclick = () => api('/api/analyse', {}).catch(() => {});
   $('#quit').onclick = async () => { await api('/api/quitter', {}).catch(() => {}); document.body.innerHTML = '<div class="empty" style="margin:40px">TFT Stats est fermé. Tu peux fermer cette fenêtre.</div>'; };
+}
+
+// État du jeu : client LoL (codes d'équipe, traits, augments, début et fin de partie) et client TFT seul (début et fin de partie lus
+// dans ses fichiers). Sans le client LoL, les données qu'il donne restent celles de sa dernière ouverture.
+function jeuHtml() {
+  const cl = STATE && STATE.client, j = STATE && STATE.jeu;
+  if (!cl || !j) return '';
+  const date = t => t ? new Date(t).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' }) : 'jamais';
+  const lol = cl.connecte ? 'client LoL connecté' : 'client LoL fermé';
+  const tft = !j.dossier ? 'fichiers du client TFT introuvables' : j.enPartie ? 'partie en cours (client TFT)' : 'début et fin de partie lus dans les fichiers du client TFT';
+  const vieux = !cl.connecte && j.traits ? ` Codes d'équipe et traits des champions : ${date(j.codes) === date(j.traits) ? `lus le ${esc(date(j.codes))}` : `lus le ${esc(date(j.codes))} et le ${esc(date(j.traits))}`}. Après un nouveau set, ouvre le client LoL une fois pour les mettre à jour.` : '';
+  return `<p class="muted">Jeu : ${esc(lol)} ; ${esc(tft)}.${vieux}</p>`;
 }
 
 // ---- Navigation et chargement ----

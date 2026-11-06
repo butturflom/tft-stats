@@ -7,8 +7,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { exec, execFile, spawn } from 'node:child_process';
 import { ROOT, DATA, loadEnv, updateEnv, loadAugments, Riot } from './lib.mjs';
-import { startLcu, lcuState, currentPuuid, PLANNER } from './lcu.mjs';
-import { collect, refreshRank, completerPartie, myPuuidFromEnv } from './collecter.mjs';
+import { startLcu, lcuState, currentPuuid, PLANNER, TRAITS_CLIENT } from './lcu.mjs';
+import { collect, refreshRank, completerPartie, recupererPartie, myPuuidFromEnv } from './collecter.mjs';
+import { startJeu, jeuState, idPartie } from './jeu-tft.mjs';
 import { Worker } from 'node:worker_threads';
 import zlib from 'node:zlib';
 import { servirImage } from './images.mjs';
@@ -82,7 +83,12 @@ const baseInfo = () => {
   baseCache = { t: Date.now(), v };
   return v;
 };
-const publicState = () => ({ ...state, settings: settingsView(), client: lcuState, scout: scoutState, base: baseInfo() });
+// Date des données lues dans le client LoL (codes d'équipe, traits des champions) : sans lui, elles ne sont plus mises à jour
+const majClient = f => { try { return fs.statSync(f).mtimeMs; } catch { return null; } };
+const publicState = () => ({
+  ...state, settings: settingsView(), client: lcuState, scout: scoutState, base: baseInfo(),
+  jeu: { ...jeuState, codes: majClient(PLANNER), traits: majClient(TRAITS_CLIENT) },
+});
 
 const clients = new Set(), overlayClients = new Set();
 let lastBroadcast = 0, pending = null;
@@ -493,30 +499,62 @@ server.listen(PORT, LOCAL, async () => {
   veille(); setInterval(veille, 3600e3);
   setTimeout(sauvegardeDuJour, Number(process.env.TFT_SAUVEGARDE_DELAI) || 120000);
   setInterval(sauvegardeDuJour, 3600e3);
+  // Début et fin de partie : vus par le client LoL s'il est ouvert, et par les fichiers du client TFT (jeu-tft.mjs), qui marche sans lui.
+  // Une même partie vue des deux côtés n'est traitée qu'une fois.
+  const debutsVus = new Set(), finsVues = new Set();
+  const finPartie = rec => {
+    if (finsVues.has(rec.id)) return;
+    finsVues.add(rec.id);
+    const me = rec.b.find(b => b.me);
+    log(`Nouvelle partie détectée : ${me ? me.p + 'e place' : rec.id}`);
+    state.nouvellePartie = { id: rec.id, t: rec.t };
+    // Fenêtre du récap : seulement pour une partie qui vient de se terminer, si l'option est active et la fenêtre fermée
+    const recent = Date.now() - rec.t < 90 * 60000;
+    quickAnalyse().then(() => { if (recent && settingsView().recapFenetre && clients.size === overlayClients.size) openWindow(); });
+    // Les LP sont mis à jour par Riot quelques secondes après la partie. Si le client LoL l'a vue avant la collecte,
+    // elle n'est que provisoire (date en texte) : on la remplace par celle de l'API au même moment.
+    setTimeout(async () => {
+      const r = await refreshRank().catch(() => null);
+      if (r) log(`Rang : ${r.tier} ${r.div} ${r.lp} LP`);
+      const ok = settingsView().keyPresent && await completerPartie(rec.id).catch(() => false);
+      if (ok) log('Partie complétée depuis l\'API Riot (date, joueurs)');
+      if (r || ok) quickAnalyse();
+    }, 90000);
+  };
+  const debutPartie = ({ gameId, puuid = null, puuids = [] }) => {
+    if (gameId && debutsVus.has(String(gameId))) return;
+    if (gameId) debutsVus.add(String(gameId));
+    const s = settingsView();
+    log('Début de partie détecté');
+    if (s.overlayAuto && overlayClients.size === 0) openOverlay(s.overlayCompact ? 'compact' : 'complet');
+    if (s.lobbyAuto) scanLobby(puuid, gameId, puuids);
+  };
   startLcu({
     onNew: n => { log(`Client LoL : ${n} partie(s) avec augments récupérée(s)`); quickAnalyse(); },
-    onGame: rec => {
-      const me = rec.b.find(b => b.me);
-      log(`Nouvelle partie détectée : ${me ? me.p + 'e place' : rec.id}`);
-      state.nouvellePartie = { id: rec.id, t: rec.t };
-      // Fenêtre du récap : seulement pour une partie qui vient de se terminer, si l'option est active et la fenêtre fermée
-      const recent = Date.now() - rec.t < 90 * 60000;
-      quickAnalyse().then(() => { if (recent && settingsView().recapFenetre && clients.size === overlayClients.size) openWindow(); });
-      // Les LP sont mis à jour par Riot quelques secondes après la partie. Si le client LoL l'a vue avant la collecte,
-      // elle n'est que provisoire (date en texte) : on la remplace par celle de l'API au même moment.
-      setTimeout(async () => {
-        const r = await refreshRank().catch(() => null);
-        if (r) log(`Rang : ${r.tier} ${r.div} ${r.lp} LP`);
-        const ok = settingsView().keyPresent && await completerPartie(rec.id).catch(() => false);
-        if (ok) log('Partie complétée depuis l\'API Riot (date, joueurs)');
-        if (r || ok) quickAnalyse();
-      }, 90000);
-    },
-    onStart: ({ gameId, puuid, puuids }) => {
-      const s = settingsView();
-      log('Début de partie détecté');
-      if (s.overlayAuto && overlayClients.size === 0) openOverlay(s.overlayCompact ? 'compact' : 'complet');
-      if (s.lobbyAuto) scanLobby(puuid, gameId, puuids);
+    onGame: finPartie,
+    onStart: debutPartie,
+  });
+  // Client TFT seul : la partie terminée est demandée à l'API Riot, qui la publie quelques minutes après la fin
+  const ESSAIS_MS = [20e3, 60e3, 120e3, 300e3, 600e3];
+  startJeu({
+    onDebut: ({ gameId }) => debutPartie({ gameId }),
+    onFin: fin => {
+      const moi = fin.joueurs.find(j => j.riotId && settingsView().riotId && j.riotId.toLowerCase() === settingsView().riotId.toLowerCase());
+      if (!fin.classee) { log(`Partie terminée hors classée${moi ? ` (${moi.place}e place)` : ''} : non comptée`); return; }
+      const id = idPartie(fin.gameId, loadEnv().RIOT_PLATFORM);
+      if (finsVues.has(id)) return;
+      log(`Fin de partie vue par le client TFT${moi ? ` : ${moi.place}e place` : ''}`);
+      if (!settingsView().keyPresent) { log('Clé Riot absente : la partie sera ajoutée à la prochaine collecte'); return; }
+      let essai = 0;
+      const suivant = () => setTimeout(async () => {
+        let rec = null;
+        try { rec = await recupererPartie(id); }
+        catch (e) { if (e.fatal) { log('Partie terminée : ' + e.message); return; } }
+        if (rec) return finPartie(rec);
+        if (++essai < ESSAIS_MS.length) suivant();
+        else log('Partie terminée pas encore publiée par Riot : elle sera ajoutée à la prochaine collecte');
+      }, ESSAIS_MS[essai]);
+      suivant();
     },
   });
   if (!fs.existsSync(path.join(DATA, 'augments-fr.json'))) {
@@ -536,7 +574,7 @@ server.listen(PORT, LOCAL, async () => {
     const imp = getMeta(ouvrir(), 'import');
     if (imp && Date.now() - Date.parse(imp.date) < 120000) log(`Base SQLite créée : ${imp.ajoutees} parties importées (${imp.doublons} doublons, ${imp.illisibles} lignes illisibles écartées). Ancien fichier gardé : data/${imp.renomme || 'parties.jsonl'}`);
   } catch {}
-  if (fmt < 20 && enStock > 0) {
+  if (fmt < 21 && enStock > 0) {
     state.running = true; await runAnalyse(); state.running = false; state.phase = 'idle'; broadcast();
   }
   const fresh = state.lastRun && Date.now() - new Date(state.lastRun).getTime() < 5 * 60000;

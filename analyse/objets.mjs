@@ -1,6 +1,20 @@
 // Augments, objets et rôle de chaque champion, plateau type de chaque compo et index des champions et des objets.
 import { compoParNiveau, NIVEAU_OBSERVE } from '../niveaux.mjs';
 import { r2, summarize, poids } from './outils.mjs';
+import { estOffensif } from './plateaux.mjs';
+
+// Rôle d'un champion pour la disposition proposée : tank s'il porte surtout des objets défensifs en fin de partie. Mesuré sur 65 champions
+// (niveau 8 et plus, 14 jours) : la part d'objets défensifs se sépare nettement, 0 à 10 % pour 39 champions, 60 % ou plus pour 22.
+// Les objets ne disent pas si un champion se bat au corps à corps : un assassin est « dégâts » comme un tireur.
+const SEUIL_TANK = 0.5, MIN_OBJETS_ROLE = 20;
+const objetDeRole = it => !/Component_|Emblem|Artifact|Radiant|Tacticians|Consumable/i.test(it);
+export function roleDe(a) {
+  if (!a || !a.c) return null;
+  let off = 0, def = 0;
+  for (const [it, w] of Object.entries(a.c)) if (objetDeRole(it)) { if (estOffensif(it)) off += w; else def += w; }
+  if (off + def < MIN_OBJETS_ROLE) return null;
+  return { role: def / (off + def) >= SEUIL_TANK ? 'tank' : 'degats', defensif: r2(def / (off + def)) };
+}
 
 // Statistiques des augments (de tous les plateaux, et des tiens : ajoutés à « moi »)
 export function statsAugments({ boards, mine, moi }) {
@@ -75,8 +89,10 @@ export function plateauxEtIndex({ comps, groups, boards, names, T = id => id, I,
     const g = unitGlobal.get(id);
     const objets = g ? topOf(g.c) : [];
     objets.forEach(it => usedItems.add(it));
-    unitsIndex[id] = { nom, img: UI(id), cout: g?.cost ?? null, porteur: g && g.n >= 20 && g.nP > 0 ? r2(g.held / g.nP) : null, objets };
+    const r = roleDe(affinites[id]);
+    unitsIndex[id] = { nom, img: UI(id), cout: g?.cost ?? null, porteur: g && g.n >= 20 && g.nP > 0 ? r2(g.held / g.nP) : null, objets, ...(r || {}) };
   }
-  const itemsIndex = Object.fromEntries([...usedItems].map(id => [id, { nom: names.items?.[id] || I(id), img: II(id) }]));
+  // def : objet défensif (plateaux.mjs), pour le rôle d'un champion dans la disposition proposée
+  const itemsIndex = Object.fromEntries([...usedItems].map(id => [id, { nom: names.items?.[id] || I(id), img: II(id), ...(objetDeRole(id) && !estOffensif(id) ? { def: true } : {}) }]));
   return { unitsIndex, itemsIndex };
 }

@@ -414,6 +414,15 @@ a.ghost{display:inline-block;text-decoration:none;color:inherit}
 .nivpassage{margin:8px 0 0;padding:6px 10px;border-left:3px solid var(--accent);background:var(--accent-soft);border-radius:0 6px 6px 0;font-size:.86rem}
 .ovbody .nivpassage{background:transparent;border-left-color:var(--hc);padding:2px 8px;border-radius:0}
 .nivsyn{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 0}
+.dispo{--hx:42px;display:grid;justify-content:start;gap:2px;margin:10px 0 0;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--panel-2);width:max-content;max-width:100%;overflow-x:auto}
+.dispo-cote{font-size:.68rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.dhxr{display:flex;gap:3px;height:calc(var(--hx) * .82)}
+.dhxr.dec{margin-left:calc(var(--hx) / 2 + 1px)}
+.dhx{width:var(--hx);height:var(--hx);clip-path:polygon(50% 0,100% 25%,100% 75%,50% 100%,0 75%,0 25%);background:var(--cc,var(--line));display:grid;place-items:center}
+.dhx img{width:calc(var(--hx) - 6px);height:calc(var(--hx) - 6px);object-fit:cover;clip-path:polygon(50% 0,100% 25%,100% 75%,50% 100%,0 75%,0 25%)}
+.dhx.vide{background:color-mix(in srgb,var(--line) 55%,transparent)}
+.dhx.carry{background:var(--accent)}
+.ovbody .dispo{--hx:30px;border-radius:0;border-color:var(--hl);background:transparent;padding:4px 6px}
 .syn{border:1px solid var(--line);background:var(--panel-2);border-radius:999px;padding:2px 10px;font-size:.8rem;color:var(--muted)}
 .syn b{color:var(--fg)}
 .ovbody .nivsyn{gap:3px;margin:4px 0 0}

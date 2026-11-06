@@ -49,6 +49,13 @@ Onglets
                    champion ou un trait (plusieurs possibles : les compos doivent les avoir tous)
                    et choisis un style de jeu : reroll (carry 3 étoiles), niveau 8 ou niveau 9.
                    Les filtres sont les mêmes partout, et l'overlay suit ceux du tableau de bord.
+- Disposition    : dans « Construire la compo par niveau », le bouton « Disposition proposée » place
+                   les champions sur le plateau : tanks devant, carry dans un coin du fond. C'est une
+                   proposition (Riot ne publie pas les positions) : les objets ne disent pas qui se
+                   bat au corps à corps, adapte pour un assassin ou un carry de mêlée.
+- Client TFT     : l'appli voit aussi le début et la fin de tes parties quand tu joues avec le client
+                   TFT seul, sans le client LoL (elle lit les fichiers que le jeu écrit). Ouvre le client
+                   LoL une fois après un nouveau set : codes d'équipe et traits viennent de lui.
 - Classement par niveau : les compos classées niveau par niveau (4 à 10), sur les plateaux
                    qui ont fini à ce niveau, avec les champions de ces plateaux (ce n'est pas le
                    plateau conseillé de « Construire la compo »). À niveau égal, la comparaison est juste ;

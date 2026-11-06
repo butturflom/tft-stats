@@ -84,6 +84,26 @@ export async function completerPartie(id, { env = null, riot = null } = {}) {
   } finally { compterRequetes(riot, avant); }
 }
 
+// Pour l'application, à la fin d'une partie vue dans les fichiers du client TFT (jeu-tft.mjs) : la partie, déjà en base ou demandée
+// tout de suite à l'API au lieu d'attendre la collecte. null si l'API ne l'a pas encore publiée (quelques minutes après la fin).
+export async function recupererPartie(id, { env = null, riot = null } = {}) {
+  const db = ouvrir();
+  const deja = db.prepare('SELECT json FROM parties WHERE id = ?').get(id);
+  if (deja) { try { return JSON.parse(deja.json); } catch { return null; } }
+  env = env || loadEnv();
+  riot = riot || new Riot(env);
+  const avant = Number(riot.count) || 0;
+  try {
+    const puuid = await myPuuidFromEnv(riot, env);
+    if (!puuid) return null;
+    const m = await riot.regionGet(`/tft/match/v1/matches/${id}`);
+    const rec = m ? compact(m, 'MOI', puuid) : null;
+    if (!rec) return null;
+    ajouterPartie(db, rec, joueursDe(m));
+    return rec;
+  } finally { compterRequetes(riot, avant); }
+}
+
 const pidAlive = pid => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
 
 // Version compacte d'une partie : on ne garde que ce qui sert aux stats, sans identifiant de joueur.
